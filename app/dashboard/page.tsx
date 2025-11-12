@@ -22,7 +22,7 @@ interface User {
 interface TableData {
   nomor: number;
   member: string;
-  pt: string;
+  pt: string; // Personal Trainer name
   status: string;
 }
 
@@ -31,6 +31,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [tableData, setTableData] = useState<TableData[]>([]);
+  const [selectedRow, setSelectedRow] = useState<TableData | null>(null);
 
   useEffect(() => {
     // Check if user is logged in
@@ -46,11 +47,11 @@ export default function DashboardPage() {
       
       // Mock data - replace with actual API call
       setTableData([
-        { nomor: 1, member: 'John Doe', pt: 'PT ABC', status: 'Aktif' },
-        { nomor: 2, member: 'Jane Smith', pt: 'PT XYZ', status: 'Aktif' },
-        { nomor: 3, member: 'Bob Johnson', pt: 'PT DEF', status: 'Tidak Aktif' },
-        { nomor: 4, member: 'Alice Brown', pt: 'PT GHI', status: 'Aktif' },
-        { nomor: 5, member: 'Charlie Wilson', pt: 'PT JKL', status: 'Pending' },
+        { nomor: 1, member: 'John Doe', pt: 'Budi Santoso', status: 'Valid' },
+        { nomor: 2, member: 'Jane Smith', pt: 'Siti Nurhaliza', status: 'Valid' },
+        { nomor: 3, member: 'Bob Johnson', pt: 'Ahmad Fauzi', status: 'Belum Validasi' },
+        { nomor: 4, member: 'Alice Brown', pt: 'Dewi Lestari', status: 'Valid' },
+        { nomor: 5, member: 'Charlie Wilson', pt: 'Rizki Pratama', status: 'Belum Validasi' },
       ]);
     } catch (error) {
       console.error('Error parsing user data:', error);
@@ -65,10 +66,19 @@ export default function DashboardPage() {
     router.push('/login');
   };
 
-  const handleAction = (nomor: number) => {
-    // Handle action button click
-    console.log('Action clicked for row:', nomor);
-    // Add your action logic here
+  const handleAction = (row: TableData) => {
+    // Show card selection modal
+    setSelectedRow(row);
+  };
+
+  const handleSelectType = (type: 'member' | 'pt', row: TableData) => {
+    // Navigate to verification page with selected type
+    const personName = type === 'member' ? row.member : row.pt;
+    router.push(`/verification?nomor=${row.nomor}&member=${encodeURIComponent(row.member)}&pt=${encodeURIComponent(row.pt)}&status=${encodeURIComponent(row.status)}&type=${type}&person=${encodeURIComponent(personName)}`);
+  };
+
+  const handleCloseModal = () => {
+    setSelectedRow(null);
   };
 
   if (loading) {
@@ -125,7 +135,7 @@ export default function DashboardPage() {
                   <TableRow className="bg-gradient-to-r from-purple-100 to-blue-100">
                     <TableHead className="font-bold text-purple-700">Nomor</TableHead>
                     <TableHead className="font-bold text-purple-700">Member</TableHead>
-                    <TableHead className="font-bold text-purple-700">PT</TableHead>
+                    <TableHead className="font-bold text-purple-700">Personal Trainer</TableHead>
                     <TableHead className="font-bold text-purple-700">Status</TableHead>
                     <TableHead className="font-bold text-purple-700 text-center">Action</TableHead>
                   </TableRow>
@@ -139,11 +149,9 @@ export default function DashboardPage() {
                       <TableCell>
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            row.status === 'Aktif'
+                            row.status === 'Valid'
                               ? 'bg-green-100 text-green-700'
-                              : row.status === 'Tidak Aktif'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-yellow-100 text-yellow-700'
+                              : 'bg-red-100 text-red-700'
                           }`}
                         >
                           {row.status}
@@ -151,7 +159,7 @@ export default function DashboardPage() {
                       </TableCell>
                       <TableCell className="text-center">
                         <Button
-                          onClick={() => handleAction(row.nomor)}
+                          onClick={() => handleAction(row)}
                           size="sm"
                           className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
                         >
@@ -166,6 +174,69 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </main>
+
+      {/* Selection Modal */}
+      {selectedRow && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
+                Pilih yang akan divalidasi
+              </h2>
+              <Button
+                onClick={handleCloseModal}
+                variant="ghost"
+                size="icon"
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </Button>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Pilih Member atau Personal Trainer untuk verifikasi face recognition
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Member Card */}
+              <Card
+                className="cursor-pointer hover:shadow-xl transition-all duration-300 border-2 hover:border-purple-500"
+                onClick={() => handleSelectType('member', selectedRow)}
+              >
+                <CardContent className="p-6 text-center space-y-4">
+                  <div className="w-20 h-20 mx-auto bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
+                    <span className="text-4xl">👤</span>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">Member</h3>
+                    <p className="text-lg font-semibold text-purple-600">{selectedRow.member}</p>
+                  </div>
+                  <Button className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white">
+                    Pilih Member
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* PT Card */}
+              <Card
+                className="cursor-pointer hover:shadow-xl transition-all duration-300 border-2 hover:border-blue-500"
+                onClick={() => handleSelectType('pt', selectedRow)}
+              >
+                <CardContent className="p-6 text-center space-y-4">
+                  <div className="w-20 h-20 mx-auto bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                    <span className="text-4xl">💪</span>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">Personal Trainer</h3>
+                    <p className="text-lg font-semibold text-blue-600">{selectedRow.pt}</p>
+                  </div>
+                  <Button className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white">
+                    Pilih PT
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
