@@ -3,8 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
+import { Card, CardContent } from '@/components/ui/card';
 
 interface VerificationResult {
   success: boolean;
@@ -155,6 +154,11 @@ export default function VerificationPage() {
       return;
     }
 
+    if (!person || !type) {
+      setError('Data tidak lengkap. Silakan kembali ke dashboard.');
+      return;
+    }
+
     setIsScanning(true);
     setVerificationResult(null);
     setError(null);
@@ -164,7 +168,34 @@ export default function VerificationPage() {
       const response = await validateFace(imageBase64);
 
       if (response.ok && response.matched) {
-        // ✅ SUCCESS - Wajah terdaftar dan cocok!
+        // Validasi: Nama dari face recognition harus sama dengan nama yang dipilih
+        const detectedName = response.candidate?.name || '';
+        const expectedName = person;
+        
+        // Normalize names untuk perbandingan (trim, lowercase)
+        const normalizeName = (name: string) => name.trim().toLowerCase();
+        const detectedNormalized = normalizeName(detectedName);
+        const expectedNormalized = normalizeName(expectedName);
+        
+        // Cek apakah nama cocok
+        if (detectedNormalized !== expectedNormalized) {
+          // Nama tidak cocok - validasi gagal
+          // Log detail ke console untuk debugging
+          console.log('Validasi nama gagal:', {
+            detected: detectedName,
+            expected: expectedName,
+            type: type === 'member' ? 'Member' : 'Personal Trainer',
+          });
+          
+          // Tampilkan pesan generic di UI
+          setVerificationResult({
+            success: false,
+            message: 'Nama tidak cocok dengan data yang dipilih',
+          });
+          return;
+        }
+
+        // ✅ SUCCESS - Wajah terdaftar, cocok, dan nama sesuai!
         setVerificationResult({
           success: true,
           message: 'Wajah terverifikasi!',
@@ -172,6 +203,16 @@ export default function VerificationPage() {
           score: response.best_score,
         });
         stopCamera();
+
+        // Simpan status verifikasi ke sessionStorage untuk update di dashboard
+        const verificationData = {
+          nomor: nomor,
+          type: type,
+          person: person,
+          verified: true,
+          timestamp: Date.now(),
+        };
+        sessionStorage.setItem('lastVerification', JSON.stringify(verificationData));
       } else if (response.ok && !response.matched) {
         // ⚠️ Wajah terdeteksi tapi tidak cocok atau tidak terdaftar
         setVerificationResult({
@@ -270,115 +311,102 @@ export default function VerificationPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-purple-100">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md shadow-lg border-b-2 border-purple-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-20">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-              Verifikasi Face Recognition
-            </h1>
-            <Button
+      {/* Simple Header */}
+      <header className="bg-white/60 backdrop-blur-sm border-b border-purple-100">
+        <div className="max-w-3xl mx-auto px-6 py-4">
+          <div className="flex justify-between items-center">
+            <button
               onClick={handleBack}
-              variant="outline"
-              className="border-purple-300 text-purple-700 hover:bg-purple-50"
+              className="text-gray-600 hover:text-gray-900 transition-colors"
             >
-              Kembali ke Dashboard
-            </Button>
+              ← Kembali
+            </button>
+            <h1 className="text-lg font-semibold text-gray-900">Face Recognition</h1>
+            <div className="w-16"></div>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Info Card */}
-        <Card className="shadow-xl border-2 border-purple-200 bg-white/90 backdrop-blur-sm mb-6">
-          <CardHeader className="bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-t-lg -m-6 mb-4">
-            <CardTitle className="text-xl text-white">Informasi Booking</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Nomor</p>
-                <p className="font-semibold text-gray-900">{nomor}</p>
+      <main className="max-w-3xl mx-auto px-6 py-8">
+        {/* Compact Info Section */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                type === 'member' 
+                  ? 'bg-purple-100' 
+                  : 'bg-blue-100'
+              }`}>
+                <span className="text-xl">{type === 'member' ? '👤' : '💪'}</span>
               </div>
               <div>
-                <p className="text-sm text-gray-600 mb-1">Member</p>
-                <p className="font-semibold text-gray-900">{member}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Personal Trainer</p>
-                <p className="font-semibold text-gray-900">{pt}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Status</p>
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                    status === 'Valid'
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-red-100 text-red-700'
-                  }`}
-                >
-                  {status}
-                </span>
+                <p className="text-xs text-gray-500 uppercase tracking-wide">
+                  {type === 'member' ? 'Member' : 'Personal Trainer'}
+                </p>
+                <p className="text-lg font-semibold text-gray-900">{person}</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-medium ${
+                status === 'Valid'
+                  ? 'bg-green-50 text-green-700'
+                  : 'bg-red-50 text-red-700'
+              }`}
+            >
+              {status}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-100">
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Nomor</p>
+              <p className="text-sm font-medium text-gray-900">{nomor}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Member</p>
+              <p className="text-sm font-medium text-gray-900">{member}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 mb-1">PT</p>
+              <p className="text-sm font-medium text-gray-900">{pt}</p>
+            </div>
+          </div>
+        </div>
 
         {/* Verification Card */}
-        <Card className="shadow-xl border-2 border-purple-200 bg-white/90 backdrop-blur-sm">
-          <CardHeader className="bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-t-lg -m-6 mb-4">
-            <CardTitle className="text-2xl text-white">Verifikasi Face Recognition</CardTitle>
-            <CardDescription className="text-purple-100">
-              Verifikasi untuk {type === 'member' ? 'Member' : 'Personal Trainer'}: {person}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-6">
-            {/* Selected Person Info */}
-            <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl p-4 border-2 border-purple-200">
-              <div className="flex items-center gap-4">
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
-                  type === 'member' 
-                    ? 'bg-gradient-to-r from-purple-500 to-blue-500' 
-                    : 'bg-gradient-to-r from-blue-500 to-purple-500'
-                }`}>
-                  <span className="text-3xl">{type === 'member' ? '👤' : '💪'}</span>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">
-                    {type === 'member' ? 'Member' : 'Personal Trainer'}
-                  </p>
-                  <p className="text-xl font-bold text-gray-900">{person}</p>
-                </div>
-              </div>
-            </div>
+        <Card className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <CardContent className="p-6 space-y-6">
 
             {/* Face Recognition Area */}
-            <div className="space-y-3">
-              <Label className="text-base font-bold text-gray-700">Face Recognition</Label>
-              <div className="border-2 border-dashed border-purple-300 rounded-xl p-4 bg-gradient-to-br from-purple-50 to-blue-50 min-h-[400px] flex flex-col items-center justify-center">
+            <div className="space-y-4">
+              <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-900 mb-1">Verifikasi Wajah</h2>
+                <p className="text-sm text-gray-500">Posisikan wajah Anda di depan kamera</p>
+              </div>
+
+              {/* Video Container */}
+              <div className="relative w-full max-w-lg mx-auto aspect-video bg-gray-900 rounded-2xl overflow-hidden">
                 {/* Video Element - Always render but conditionally show */}
-                <div className={`relative w-full max-w-md aspect-video bg-black rounded-lg overflow-hidden border-4 border-purple-400 shadow-2xl ${!isCameraActive || verificationResult?.success ? 'hidden' : ''}`}>
+                <div className={`relative w-full h-full ${!isCameraActive || verificationResult?.success ? 'hidden' : ''}`}>
                   <video
                     ref={videoRef}
                     autoPlay
                     playsInline
                     muted
                     className="w-full h-full object-cover"
-                    style={{ transform: 'scaleX(-1)' }} // Mirror effect
+                    style={{ transform: 'scaleX(-1)' }}
                   />
                   {isScanning && (
-                    <div className="absolute inset-0 bg-black/70 rounded-lg flex items-center justify-center z-10">
-                      <div className="text-center space-y-4">
-                        <div className="w-16 h-16 mx-auto border-4 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <p className="text-white font-semibold text-lg">Memindai wajah...</p>
-                        <p className="text-white/80 text-sm">Harap tetap melihat ke kamera</p>
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                      <div className="text-center space-y-3">
+                        <div className="w-12 h-12 mx-auto border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-white font-medium">Memindai wajah...</p>
                       </div>
                     </div>
                   )}
                   {!isScanning && isCameraActive && (
-                    <div className="absolute bottom-4 left-0 right-0 text-center z-10">
-                      <p className="text-white bg-black/70 backdrop-blur-sm px-4 py-2 rounded-lg text-sm font-semibold inline-block">
+                    <div className="absolute bottom-4 left-0 right-0 text-center">
+                      <p className="text-white/90 bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-lg text-xs font-medium inline-block">
                         Posisikan wajah di dalam frame
                       </p>
                     </div>
@@ -387,52 +415,57 @@ export default function VerificationPage() {
 
                 {/* Initial State - No Camera */}
                 {!isCameraActive && !verificationResult && (
-                  <div className="text-center space-y-4">
-                    <div className="w-24 h-24 mx-auto bg-purple-100 rounded-full flex items-center justify-center">
-                      <span className="text-5xl">📷</span>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center space-y-3">
+                      <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center">
+                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      </div>
+                      <p className="text-sm font-medium text-gray-700">Kamera belum aktif</p>
+                      <p className="text-xs text-gray-500">Klik tombol di bawah untuk memulai</p>
                     </div>
-                    <p className="text-lg font-semibold text-gray-700">Siap untuk verifikasi</p>
-                    <p className="text-sm text-gray-600">Aktifkan kamera untuk memulai face recognition</p>
                   </div>
                 )}
 
                 {/* Success Result */}
                 {verificationResult?.success && (
-                  <div className="w-full max-w-md p-6 bg-green-50 border-2 border-green-400 rounded-xl">
-                    <div className="flex items-center mb-4">
-                      <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center mr-3">
+                  <div className="absolute inset-0 flex items-center justify-center bg-green-50">
+                    <div className="text-center space-y-3 px-6">
+                      <div className="w-16 h-16 mx-auto bg-green-500 rounded-full flex items-center justify-center">
                         <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
                       </div>
-                      <h3 className="text-green-800 font-bold text-xl">Verifikasi Berhasil!</h3>
-                    </div>
-                    <div className="space-y-2 text-green-700">
-                      <p className="font-semibold text-lg">
-                        Selamat datang, {verificationResult.user?.name}!
-                      </p>
-                      <p className="text-sm">
-                        Email: {verificationResult.user?.email}
-                      </p>
-                      {verificationResult.score && (
-                        <p className="text-xs text-green-600">
-                          Confidence Score: {(verificationResult.score * 100).toFixed(1)}%
-                        </p>
-                      )}
+                      <div>
+                        <h3 className="text-lg font-semibold text-green-900 mb-1">Verifikasi Berhasil!</h3>
+                        <p className="text-sm text-green-700 font-medium">{verificationResult.user?.name}</p>
+                        <p className="text-xs text-green-600 mt-1">{verificationResult.user?.email}</p>
+                        {verificationResult.score && (
+                          <p className="text-xs text-green-500 mt-2">
+                            Confidence: {(verificationResult.score * 100).toFixed(1)}%
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
 
                 {/* Failed Result */}
                 {verificationResult && !verificationResult.success && (
-                  <div className="w-full max-w-md p-6 bg-yellow-50 border-2 border-yellow-400 rounded-xl">
-                    <div className="flex items-center mb-4">
-                      <div className="w-12 h-12 bg-yellow-500 rounded-full flex items-center justify-center mr-3">
-                        <span className="text-2xl">⚠️</span>
+                  <div className="absolute inset-0 flex items-center justify-center bg-orange-50">
+                    <div className="text-center space-y-3 px-6">
+                      <div className="w-16 h-16 mx-auto bg-orange-500 rounded-full flex items-center justify-center">
+                        <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
                       </div>
-                      <h3 className="text-yellow-800 font-bold text-xl">Verifikasi Gagal</h3>
+                      <div>
+                        <h3 className="text-lg font-semibold text-orange-900 mb-1">Verifikasi Gagal</h3>
+                        <p className="text-sm text-orange-700">{verificationResult.message}</p>
+                      </div>
                     </div>
-                    <p className="text-yellow-800">{verificationResult.message}</p>
                   </div>
                 )}
 
@@ -442,40 +475,40 @@ export default function VerificationPage() {
 
               {/* Error Message */}
               {error && (
-                <div className="p-4 bg-red-50 border-2 border-red-300 text-red-700 rounded-xl text-sm">
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm text-center">
                   {error}
                 </div>
               )}
             </div>
 
             {/* Action Buttons */}
-            <div className="flex gap-4 pt-4">
+            <div className="flex flex-col gap-3 pt-2">
               {!isCameraActive ? (
                 <Button
                   onClick={startCamera}
-                  className="flex-1 h-12 text-base font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transition-all"
+                  className="w-full h-11 font-medium bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
                 >
                   Aktifkan Kamera
                 </Button>
               ) : (
-                <>
+                <div className="flex gap-3">
                   <Button
                     onClick={handleStartVerification}
                     disabled={isScanning}
-                    className="flex-1 h-12 text-base font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transition-all"
+                    className="flex-1 h-11 font-medium bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white disabled:opacity-50"
                   >
-                    {isScanning ? 'Memindai...' : 'Mulai Verifikasi'}
+                    {isScanning ? 'Memindai...' : 'Verifikasi Sekarang'}
                   </Button>
                   {!verificationResult?.success && (
                     <Button
                       onClick={stopCamera}
                       variant="outline"
-                      className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                      className="h-11 px-4 border-gray-300 text-gray-700 hover:bg-gray-50"
                     >
-                      Matikan Kamera
+                      Matikan
                     </Button>
                   )}
-                </>
+                </div>
               )}
               {verificationResult && (
                 <Button
@@ -487,9 +520,9 @@ export default function VerificationPage() {
                     }
                   }}
                   variant="outline"
-                  className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                  className="w-full h-11 border-gray-300 text-gray-700 hover:bg-gray-50"
                 >
-                  Reset
+                  Coba Lagi
                 </Button>
               )}
             </div>
