@@ -27,6 +27,8 @@ interface TableData {
   status: string;
   memberVerified: boolean; // Status verifikasi Member
   ptVerified: boolean; // Status verifikasi PT
+  bookingId?: number | null;
+  memberId?: number | null;
 }
 
 export default function DashboardPage() {
@@ -36,6 +38,9 @@ export default function DashboardPage() {
   const [tableData, setTableData] = useState<TableData[]>([]);
   const [selectedRow, setSelectedRow] = useState<TableData | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [showStatistics, setShowStatistics] = useState(true);
 
   // Filter data based on search query
   const filteredData = tableData.filter((row) => {
@@ -48,6 +53,17 @@ export default function DashboardPage() {
     );
   });
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = filteredData.slice(startIndex, endIndex);
+
+  // Reset to page 1 when search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
   // Calculate statistics based on filtered data
   const totalMembers = tableData.length;
   const validCount = tableData.filter(row => row.status === 'Valid').length;
@@ -56,67 +72,93 @@ export default function DashboardPage() {
   useEffect(() => {
     // Check if user is logged in
     const userData = sessionStorage.getItem('user');
+    const selectedClub = sessionStorage.getItem('selectedClub');
+    
     if (!userData) {
       router.push('/login');
       return;
     }
 
-    try {
-      const parsedUser = JSON.parse(userData);
-      setUser(parsedUser);
-      
-      // Mock data - replace with actual API call
-      let initialData: TableData[] = [
-        { nomor: 1, member: 'Aditya Nur Iskandar', pt: 'SARFINA LUTHFIYAH RAMADHAN', status: 'Valid', memberVerified: true, ptVerified: false },
-        { nomor: 2, member: 'Jane Smith', pt: 'Siti Nurhaliza', status: 'Valid', memberVerified: true, ptVerified: false },
-        { nomor: 3, member: 'Bob Johnson', pt: 'Ahmad Fauzi', status: 'Belum Validasi', memberVerified: false, ptVerified: true },
-        { nomor: 4, member: 'Alice Brown', pt: 'Aditya Nur Iskandar', status: 'Valid', memberVerified: false, ptVerified: true },
-        { nomor: 5, member: 'Charlie Wilson', pt: 'Rizki Pratama', status: 'Belum Validasi', memberVerified: false, ptVerified: false },
-      ];
+    if (!selectedClub) {
+      router.push('/select-club');
+      return;
+    }
 
-      // Cek apakah ada verifikasi terbaru dari sessionStorage
-      const lastVerification = sessionStorage.getItem('lastVerification');
-      if (lastVerification) {
-        try {
-          const verification = JSON.parse(lastVerification);
-          // Update data berdasarkan verifikasi terbaru
-          initialData = initialData.map(row => {
-            // Match berdasarkan nomor (bisa string atau number)
-            const rowNomor = row.nomor.toString();
-            const verifNomor = verification.nomor?.toString();
-            
-            if (rowNomor === verifNomor) {
-              if (verification.type === 'member') {
-                // Normalize names untuk perbandingan yang lebih fleksibel
-                const rowMember = row.member.toLowerCase().trim();
-                const verifPerson = verification.person?.toLowerCase().trim();
-                if (rowMember === verifPerson) {
-                  return { ...row, memberVerified: true };
-                }
-              } else if (verification.type === 'pt') {
-                // Normalize names untuk perbandingan yang lebih fleksibel
-                const rowPT = row.pt.toLowerCase().trim();
-                const verifPerson = verification.person?.toLowerCase().trim();
-                if (rowPT === verifPerson) {
-                  return { ...row, ptVerified: true };
+    const fetchData = async () => {
+      try {
+        const parsedUser = JSON.parse(userData);
+        setUser(parsedUser);
+        
+        // Fetch data dari API dengan club_name
+        const response = await fetch(`/api/bookings?club_name=${encodeURIComponent(selectedClub)}`);
+        const result = await response.json();
+        
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || 'Failed to fetch bookings');
+        }
+
+        let initialData: TableData[] = result.data || [];
+
+        // Cek apakah ada verifikasi terbaru dari sessionStorage
+        const lastVerification = sessionStorage.getItem('lastVerification');
+        if (lastVerification) {
+          try {
+            const verification = JSON.parse(lastVerification);
+            // Update data berdasarkan verifikasi terbaru
+            initialData = initialData.map(row => {
+              // Match berdasarkan bookingId (bukan nomor urut)
+              const rowBookingId = row.bookingId?.toString();
+              const verifNomor = verification.nomor?.toString();
+              
+              if (rowBookingId === verifNomor) {
+                if (verification.type === 'member') {
+                  // Normalize names untuk perbandingan yang lebih fleksibel
+                  const rowMember = row.member.toLowerCase().trim();
+                  const verifPerson = verification.person?.toLowerCase().trim();
+                  if (rowMember === verifPerson) {
+                    return { ...row, memberVerified: true };
+                  }
+                } else if (verification.type === 'pt') {
+                  // Normalize names untuk perbandingan yang lebih fleksibel
+                  const rowPT = row.pt.toLowerCase().trim();
+                  const verifPerson = verification.person?.toLowerCase().trim();
+                  if (rowPT === verifPerson) {
+                    return { ...row, ptVerified: true };
+                  }
                 }
               }
-            }
-            return row;
-          });
-          console.log('Updated verification status:', initialData);
-        } catch (err) {
-          console.error('Error parsing verification data:', err);
+              return row;
+            });
+            console.log('Updated verification status:', initialData);
+          } catch (err) {
+            console.error('Error parsing verification data:', err);
+          }
         }
-      }
 
-      setTableData(initialData);
-    } catch (error) {
-      console.error('Error parsing user data:', error);
-      router.push('/login');
-    } finally {
-      setLoading(false);
-    }
+        // Update status berdasarkan verifikasi
+        initialData = initialData.map(row => {
+          let status = 'Valid';
+          if (!row.memberVerified && !row.ptVerified) {
+            status = 'Belum Validasi';
+          } else if (!row.memberVerified) {
+            status = 'Member Belum Validasi';
+          } else if (!row.ptVerified) {
+            status = 'Personal Trainer Belum Validasi';
+          }
+          return { ...row, status };
+        });
+
+        setTableData(initialData);
+      } catch (error: any) {
+        console.error('Error fetching data:', error);
+        // Fallback ke empty array jika error
+        setTableData([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
   }, [router]);
 
   const handleLogout = () => {
@@ -131,8 +173,10 @@ export default function DashboardPage() {
 
   const handleSelectType = (type: 'member' | 'pt', row: TableData) => {
     // Navigate to verification page with selected type
+    // Gunakan bookingId untuk nomor (bukan nomor urut)
     const personName = type === 'member' ? row.member : row.pt;
-    router.push(`/verification?nomor=${row.nomor}&member=${encodeURIComponent(row.member)}&pt=${encodeURIComponent(row.pt)}&status=${encodeURIComponent(row.status)}&type=${type}&person=${encodeURIComponent(personName)}`);
+    const bookingId = row.bookingId || row.nomor; // Fallback ke nomor jika bookingId tidak ada
+    router.push(`/verification?nomor=${bookingId}&member=${encodeURIComponent(row.member)}&pt=${encodeURIComponent(row.pt)}&status=${encodeURIComponent(row.status)}&type=${type}&person=${encodeURIComponent(personName)}`);
   };
 
   const handleCloseModal = () => {
@@ -165,7 +209,11 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-900">FTL Dashboard</h1>
-                <p className="text-xs text-gray-500">Face Recognition System</p>
+                <p className="text-xs text-gray-500">
+                  {typeof window !== 'undefined' && sessionStorage.getItem('selectedClub') 
+                    ? sessionStorage.getItem('selectedClub') 
+                    : 'Face Recognition System'}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -175,6 +223,42 @@ export default function DashboardPage() {
                 </svg>
                 <span className="text-sm font-medium text-gray-700">{user.email}</span>
               </div>
+              <Button
+                onClick={() => {
+                  sessionStorage.removeItem('selectedClub');
+                  router.push('/select-club');
+                }}
+                variant="outline"
+                size="sm"
+                className="border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                Ganti Club
+              </Button>
+              <Button
+                onClick={() => setShowStatistics(!showStatistics)}
+                variant="outline"
+                size="sm"
+                className="border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                {showStatistics ? (
+                  <>
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                    Sembunyikan Statistik
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                    Tampilkan Statistik
+                  </>
+                )}
+              </Button>
               <Button
                 onClick={handleLogout}
                 variant="outline"
@@ -194,7 +278,8 @@ export default function DashboardPage() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {showStatistics && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card className="bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -242,7 +327,8 @@ export default function DashboardPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
+          </div>
+        )}
 
         {/* Table Section */}
         <div className="mb-6">
@@ -329,7 +415,7 @@ export default function DashboardPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredData.map((row, index) => (
+                    paginatedData.map((row, index) => (
                     <TableRow 
                       key={row.nomor} 
                       className="border-b border-gray-100 hover:bg-gradient-to-r hover:from-purple-50/50 hover:to-blue-50/50 transition-all group"
@@ -431,6 +517,93 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Pagination */}
+        {filteredData.length > 0 && (
+          <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="text-sm text-gray-600">
+                Menampilkan <span className="font-semibold text-gray-900">{startIndex + 1}</span> - <span className="font-semibold text-gray-900">{Math.min(endIndex, filteredData.length)}</span> dari <span className="font-semibold text-gray-900">{filteredData.length}</span> data
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Per halaman:</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                variant="outline"
+                size="sm"
+                className="h-9 px-3 border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Sebelumnya
+              </Button>
+
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <Button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      variant={currentPage === pageNum ? "default" : "outline"}
+                      size="sm"
+                      className={`h-9 w-9 p-0 ${
+                        currentPage === pageNum
+                          ? "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white border-0"
+                          : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+
+              <Button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                variant="outline"
+                size="sm"
+                className="h-9 px-3 border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Selanjutnya
+                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </Button>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Selection Modal */}

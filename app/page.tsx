@@ -9,8 +9,12 @@ export default function Home() {
   useEffect(() => {
     // Check if user is already logged in
     const userData = sessionStorage.getItem('user');
-    if (userData) {
+    const selectedClub = sessionStorage.getItem('selectedClub');
+    
+    if (userData && selectedClub) {
       router.push('/dashboard');
+    } else if (userData) {
+      router.push('/select-club');
     } else {
       router.push('/login');
     }

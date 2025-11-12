@@ -1,0 +1,56 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int     @id @default(autoincrement())
+  email     String  @db.VarChar(255)
+  password  String  @db.VarChar(255)
+}
+
+model Member {
+  id        BigInt  @id @map("id") @db.BigInt
+  memberId  BigInt? @map("member_id") @db.BigInt
+  firstName String? @map("first_name") @db.VarChar(255)
+  lastName  String? @map("last_name") @db.VarChar(255)
+  email     String? @map("email") @db.VarChar(255)
+  
+  @@map("member")
+}
+
+model ListBooking {
+  id                BigInt    @id @map("id") @db.BigInt
+  day               DateTime? @map("day") @db.Date
+  starttime         DateTime? @map("starttime") @db.Time
+  daystarttime      DateTime? @map("daystarttime") @db.DateTime
+  endtime           DateTime? @map("endtime") @db.Time
+  resourceName      String?   @map("resource_name") @db.VarChar(155)
+  clubName          String?   @map("club_name") @db.VarChar(50)
+  cancelfee         Float?    @map("cancelfee") @db.Float
+  cancelbenefitloss Float?    @map("cancelbenefitloss") @db.Float
+  type              String?   @map("type") @db.VarChar(155)
+  description       String?   @map("description") @db.Text
+  parentid          BigInt?   @map("parentid") @db.BigInt
+  room              BigInt?   @map("room") @db.BigInt
+  equipment         String?   @map("equipment") @db.Text
+  alreadyRepeating  BigInt?   @map("already_repeating") @db.BigInt
+  length            String?   @map("length") @db.VarChar(50)
+  livestreamurl     Int?      @map("livestreamurl") @db.Int
+  result            Int?      @map("result") @db.Int
+  isCancelled       Int?      @map("is_cancelled") @db.Int
+  memberId          BigInt?   @map("member_id") @db.BigInt
+  showName          String?   @map("show_name") @db.Text
+  myBooking         Int?      @map("my_booking") @db.Int
+
+  @@index([id], map: "idx_list_booking_id")
+  @@map("list_booking")
+}
+

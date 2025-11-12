@@ -39,8 +39,8 @@ export default function LoginPage() {
       // Simpan user data ke sessionStorage
       sessionStorage.setItem('user', JSON.stringify(data.user));
       
-      // Redirect ke dashboard
-      router.push('/dashboard');
+      // Redirect ke select club page
+      router.push('/select-club');
     } catch (err: any) {
       setError('Terjadi kesalahan: ' + err.message);
       setLoading(false);
