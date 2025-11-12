@@ -1,0 +1,28 @@
+{
+  "name": "FTL Dashboard Booking PT",
+  "short_name": "FTL Dashboard",
+  "description": "Dashboard Booking Personal Trainer dengan Face Recognition",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#9333ea",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["health", "fitness", "business"],
+  "screenshots": [],
+  "shortcuts": []
+}
+

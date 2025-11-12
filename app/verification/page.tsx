@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,7 +19,7 @@ interface VerificationResult {
   score?: number;
 }
 
-export default function VerificationPage() {
+function VerificationContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -63,23 +63,34 @@ export default function VerificationPage() {
     return canvas.toDataURL('image/jpeg', 0.8).split(',')[1]; // Remove data:image/jpeg;base64, prefix
   };
 
-  // Validate face dengan API
+  // Validate face dengan API melalui Next.js API route (proxy)
   const validateFace = async (imageBase64: string) => {
-    const response = await fetch('http://127.0.0.1:8088/api/validate-face', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        image_b64: imageBase64,
-      }),
-    });
+    try {
+      // Gunakan Next.js API route sebagai proxy untuk menghindari CORS dan masalah network
+      const response = await fetch('/api/face-validate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image_b64: imageBase64,
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error('Network error');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error: any) {
+      console.error('API Error:', error);
+      // Provide more detailed error message
+      if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
+        throw new Error('Tidak dapat terhubung ke server. Pastikan server face recognition berjalan dan dapat diakses.');
+      }
+      throw error;
     }
-
-    return await response.json();
   };
 
   // Start camera
@@ -224,10 +235,14 @@ export default function VerificationPage() {
         setError(response.error || 'Terjadi kesalahan');
       }
     } catch (err: any) {
-      setError('Network error: ' + (err.message || 'Tidak dapat terhubung ke server'));
+      console.error('Verification error:', err);
+      const errorMessage = err.message || 'Tidak dapat terhubung ke server';
+      setError(errorMessage);
       setVerificationResult({
         success: false,
-        message: 'Terjadi kesalahan saat verifikasi',
+        message: errorMessage.includes('Tidak dapat terhubung') 
+          ? errorMessage 
+          : 'Terjadi kesalahan saat verifikasi',
       });
     } finally {
       setIsScanning(false);
@@ -530,6 +545,18 @@ export default function VerificationPage() {
         </Card>
       </main>
     </div>
+  );
+}
+
+export default function VerificationPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-600">Memuat...</div>
+      </div>
+    }>
+      <VerificationContent />
+    </Suspense>
   );
 }
 

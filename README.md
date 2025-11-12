@@ -120,9 +120,107 @@ pwa-pt/
 
 Aplikasi ini dapat diinstall sebagai PWA:
 
-1. Buka aplikasi di browser mobile (Chrome/Safari)
-2. Pilih "Add to Home Screen" atau "Install App"
-3. Aplikasi akan tersedia seperti aplikasi native
+### Cara Install PWA:
+
+1. **Build aplikasi terlebih dahulu:**
+   ```bash
+   npm run build -- --webpack
+   npm start
+   ```
+
+2. **Di Desktop (Chrome/Edge):**
+   - Buka aplikasi di browser
+   - Klik icon install di address bar (biasanya muncul otomatis)
+   - Atau buka menu (⋮) > "Install FTL Dashboard"
+
+3. **Di Mobile (Android - Chrome):**
+   - Buka aplikasi di browser
+   - Menu (⋮) > "Add to Home Screen" atau "Install App"
+   - Atau akan muncul popup "Add to Home Screen"
+
+4. **Di Mobile (iOS - Safari):**
+   - Buka aplikasi di Safari
+   - Tap Share button (□↑)
+   - Pilih "Add to Home Screen"
+
+### Troubleshooting PWA:
+
+- **Error saat install:** Pastikan aplikasi sudah di-build dengan `npm run build -- --webpack`
+- **Service worker tidak terdaftar:** Pastikan menggunakan HTTPS atau localhost
+- **Icon tidak muncul:** Pastikan file `icon-192x192.png` dan `icon-512x512.png` ada di folder `public/`
+- **Manifest error:** Cek browser console untuk error detail
+
+### Konfigurasi Face Recognition API
+
+**Masalah:** Error "Network error: failed to fetch" saat menggunakan di device lain (tablet/mobile).
+
+**Penyebab:** API URL hardcoded ke `127.0.0.1:8088` yang hanya bisa diakses dari device yang sama.
+
+**Solusi:** Menggunakan Next.js API route sebagai proxy. Environment variable di-set di server-side (tidak perlu `NEXT_PUBLIC_`).
+
+#### Langkah-langkah:
+
+1. **Cari IP address server face recognition:**
+   ```bash
+   # Di server yang menjalankan face recognition API
+   # Linux/Mac:
+   ifconfig | grep "inet " | grep -v 127.0.0.1
+   
+   # Atau:
+   ip addr show | grep "inet " | grep -v 127.0.0.1
+   
+   # Windows:
+   ipconfig
+   ```
+   Contoh output: `192.168.1.100` atau `10.0.0.5`
+
+2. **Edit file `.env.local` di root project:**
+   ```env
+   # Gunakan FACE_API_URL (tanpa NEXT_PUBLIC_) karena ini server-side
+   FACE_API_URL=http://192.168.1.100:8088/api/validate-face
+   ```
+   Ganti `192.168.1.100` dengan IP address server Anda.
+   
+   **Catatan:** Jika server face recognition berjalan di komputer yang sama dengan Next.js app, gunakan:
+   ```env
+   FACE_API_URL=http://127.0.0.1:8088/api/validate-face
+   ```
+
+3. **Pastikan server face recognition dapat diakses:**
+   - Server harus berjalan dan listening di `0.0.0.0:8088` (bukan hanya `127.0.0.1:8088`)
+   - Firewall harus mengizinkan koneksi ke port 8088
+   - Test dengan curl dari server Next.js:
+     ```bash
+     curl -X POST http://SERVER_IP:8088/api/validate-face \
+       -H "Content-Type: application/json" \
+       -d '{"image_b64":"test"}'
+     ```
+
+4. **Restart development server:**
+   ```bash
+   npm run dev
+   ```
+
+5. **Untuk production build:**
+   ```bash
+   npm run build -- --webpack
+   npm start
+   ```
+
+#### Keuntungan menggunakan API Proxy:
+
+- ✅ **Tidak ada CORS issues:** Request dari client ke Next.js API route, lalu Next.js yang call face recognition API
+- ✅ **Lebih aman:** API URL tidak exposed ke client-side code
+- ✅ **Fleksibel:** Bisa diakses dari device manapun selama Next.js server bisa akses face recognition API
+- ✅ **Environment variable server-side:** Tidak perlu `NEXT_PUBLIC_` prefix
+
+#### Troubleshooting "Failed to fetch":
+
+- **Cek IP address:** Pastikan IP address benar di `.env.local` dan server dapat diakses dari Next.js server
+- **Cek firewall:** Pastikan port 8088 terbuka di firewall server face recognition
+- **Cek network:** Pastikan Next.js server dan face recognition server dalam network yang sama
+- **Cek server:** Pastikan server face recognition berjalan dan listening di `0.0.0.0:8088`
+- **Cek logs:** Lihat console Next.js server untuk melihat error detail dari face recognition API
 
 ## Catatan
 
