@@ -9,12 +9,28 @@ export default function Home() {
   useEffect(() => {
     // Check if user is already logged in
     const userData = sessionStorage.getItem('user');
-    const selectedClub = sessionStorage.getItem('selectedClub');
+    let selectedClub = sessionStorage.getItem('selectedClub');
     
-    if (userData && selectedClub) {
+    if (userData) {
+      try {
+        const parsedUser = JSON.parse(userData);
+        
+        // Jika role_id = 11 (Personal Trainer) dan ada clubName, gunakan clubName
+        if (parsedUser.roleId === 11 && parsedUser.clubName) {
+          selectedClub = parsedUser.clubName;
+          // Auto-set selectedClub ke sessionStorage jika belum ada
+          if (!sessionStorage.getItem('selectedClub')) {
+            sessionStorage.setItem('selectedClub', parsedUser.clubName);
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+      }
+    }
+    
+    // Semua user langsung ke dashboard (tidak perlu select-club)
+    if (userData) {
       router.push('/dashboard');
-    } else if (userData) {
-      router.push('/select-club');
     } else {
       router.push('/login');
     }

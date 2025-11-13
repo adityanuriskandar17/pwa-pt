@@ -36,6 +36,8 @@ function VerificationContent() {
   const [isBlinkDetected, setIsBlinkDetected] = useState(false);
   const [isWaitingForBlink, setIsWaitingForBlink] = useState(false);
   const [blinkCount, setBlinkCount] = useState(0);
+  const [isModelLoading, setIsModelLoading] = useState(false);
+  const [isModelLoaded, setIsModelLoaded] = useState(false);
   const earHistoryRef = useRef<number[]>([]);
   const isBlinkDetectedRef = useRef<boolean>(false);
   const autoStartAttemptedRef = useRef<boolean>(false);
@@ -53,6 +55,15 @@ function VerificationContent() {
       router.push('/dashboard');
     }
   }, [type, person, router]);
+
+  // Pre-load model saat komponen mount untuk mengurangi delay
+  useEffect(() => {
+    // Load model di background saat halaman dimuat
+    loadModel().catch((error) => {
+      console.error('Failed to pre-load model:', error);
+      // Don't set error state here - will be handled when blink detection starts
+    });
+  }, []); // Run once on mount
 
   // Capture frame dari video dan convert ke base64
   const captureFrameFromVideo = (video: HTMLVideoElement): string => {
@@ -107,7 +118,13 @@ function VerificationContent() {
   // Load face landmarks detection model
   const loadModel = async () => {
     try {
-      if (modelRef.current) return modelRef.current;
+      if (modelRef.current) {
+        setIsModelLoaded(true);
+        return modelRef.current;
+      }
+      
+      setIsModelLoading(true);
+      console.log('Loading face detection model...');
       
       await tf.ready();
       const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
@@ -121,44 +138,56 @@ function VerificationContent() {
       
       const detector = await faceLandmarksDetection.createDetector(model, tfjsConfig);
       modelRef.current = detector;
+      setIsModelLoaded(true);
+      setIsModelLoading(false);
+      console.log('Model loaded successfully');
       return detector;
     } catch (error) {
       console.error('Error loading model:', error);
+      setIsModelLoading(false);
+      setIsModelLoaded(false);
       throw error;
     }
   };
 
-  // Calculate Eye Aspect Ratio (EAR) - simplified formula
+  // Calculate Eye Aspect Ratio (EAR) - standard formula
   const calculateEAR = (eyeLandmarks: number[][]): number => {
     if (eyeLandmarks.length < 6) return 0.3; // Default if not enough points
     
     // EAR formula: (|p2-p6| + |p3-p5|) / (2 * |p1-p4|)
-    // Where p1-p6 are eye landmark points
-    // p1, p4: horizontal (left, right)
-    // p2, p3, p5, p6: vertical (top, bottom)
+    // Where:
+    // p1 (index 0): left corner
+    // p2 (index 1): top left
+    // p3 (index 2): top right
+    // p4 (index 3): right corner
+    // p5 (index 4): bottom right
+    // p6 (index 5): bottom left
     
     try {
+      // Calculate Euclidean distances
+      const dist = (p1: number[], p2: number[]) => {
+        return Math.sqrt(Math.pow(p1[0] - p2[0], 2) + Math.pow(p1[1] - p2[1], 2));
+      };
+      
       // Vertical distances (top to bottom)
-      const vertical1 = Math.sqrt(
-        Math.pow(eyeLandmarks[1][0] - eyeLandmarks[5][0], 2) +
-        Math.pow(eyeLandmarks[1][1] - eyeLandmarks[5][1], 2)
-      );
-      const vertical2 = Math.sqrt(
-        Math.pow(eyeLandmarks[2][0] - eyeLandmarks[4][0], 2) +
-        Math.pow(eyeLandmarks[2][1] - eyeLandmarks[4][1], 2)
-      );
+      const vertical1 = dist(eyeLandmarks[1], eyeLandmarks[5]); // top-left to bottom-left
+      const vertical2 = dist(eyeLandmarks[2], eyeLandmarks[4]); // top-right to bottom-right
       
-      // Horizontal distance (left to right)
-      const horizontal = Math.sqrt(
-        Math.pow(eyeLandmarks[0][0] - eyeLandmarks[3][0], 2) +
-        Math.pow(eyeLandmarks[0][1] - eyeLandmarks[3][1], 2)
-      );
+      // Horizontal distance (left to right corner)
+      const horizontal = dist(eyeLandmarks[0], eyeLandmarks[3]);
       
-      if (horizontal === 0) return 0.3; // Avoid division by zero
+      if (horizontal === 0 || horizontal < 1) return 0.3; // Avoid division by zero or too small
       
       const ear = (vertical1 + vertical2) / (2.0 * horizontal);
-      return isNaN(ear) || !isFinite(ear) ? 0.3 : ear;
+      
+      // Validate result
+      if (isNaN(ear) || !isFinite(ear) || ear < 0 || ear > 1) {
+        return 0.3; // Default value for invalid EAR
+      }
+      
+      return ear;
     } catch (error) {
+      console.warn('EAR calculation error:', error);
       return 0.3; // Default value
     }
   };
@@ -201,11 +230,16 @@ function VerificationContent() {
       }
       
       // MediaPipe Face Mesh eye landmark indices (468 total landmarks)
-      // Using more reliable eye points for EAR calculation
-      // Left eye: [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
-      // Right eye: [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
-      // For EAR, we need 6 points: left, right, top-left, top-right, bottom-left, bottom-right
-      const leftEyeIndices = [33, 133, 157, 158, 159, 160]; // Left, Right, Top points, Bottom points
+      // Using standard EAR keypoints for more accurate detection
+      // Left eye EAR points: [33, 133, 157, 158, 159, 160]
+      // - 33: left corner, 133: right corner
+      // - 157: top left, 158: top right
+      // - 159: bottom left, 160: bottom right
+      // Right eye EAR points: [362, 263, 388, 387, 386, 385]
+      // - 362: left corner, 263: right corner
+      // - 388: top left, 387: top right
+      // - 386: bottom left, 385: bottom right
+      const leftEyeIndices = [33, 133, 157, 158, 159, 160];
       const rightEyeIndices = [362, 263, 388, 387, 386, 385];
 
       // Get eye landmarks from keypoints array
@@ -243,62 +277,79 @@ function VerificationContent() {
         earHistoryRef.current.shift();
       }
 
-      // Blink detection - highly sensitive for natural blinks
-      // Using multiple detection strategies for better sensitivity
-      const EAR_DROP_THRESHOLD = 0.04; // Minimum drop (4% of baseline) - very sensitive
-      const MIN_BASELINE_EAR = 0.3; // Minimum baseline EAR to consider eye as open
-      const MIN_ABSOLUTE_DROP = 0.03; // Minimum absolute drop (0.03 for very sensitive detection)
+      // Blink detection - maximum sensitivity for natural blinks
+      // Using very low thresholds and multiple detection methods
+      const MIN_BASELINE_EAR = 0.2; // Very low minimum baseline
+      const MIN_ABSOLUTE_DROP = 0.015; // Ultra low absolute drop (0.015)
+      const MIN_RELATIVE_DROP = 0.02; // 2% relative drop (very sensitive)
+      const MIN_FRAME_DROP = 0.015; // Frame-to-frame drop (very sensitive)
       
-      if (earHistoryRef.current.length >= 3) {
+      if (earHistoryRef.current.length >= 2) {
         const currentEAR = earHistoryRef.current[earHistoryRef.current.length - 1];
-        // Get baseline from last 2-3 frames (shorter window = more responsive)
+        // Get baseline from last 2-3 frames (very short window)
         const baseline = earHistoryRef.current.slice(-3, -1);
-        if (baseline.length < 2) return false;
+        if (baseline.length < 1) return false;
         
-        const avgBaseline = baseline.reduce((a, b) => a + b, 0) / baseline.length;
+        const avgBaseline = baseline.length > 0 
+          ? baseline.reduce((a, b) => a + b, 0) / baseline.length 
+          : currentEAR;
         
-        // Calculate relative drop
+        // Calculate drops
         const relativeDrop = avgBaseline > 0 ? (avgBaseline - currentEAR) / avgBaseline : 0;
         const absoluteDrop = avgBaseline - currentEAR;
         
-        // Also check if current is lower than previous frame
+        // Frame-to-frame comparison (most sensitive)
         const prevEAR = earHistoryRef.current[earHistoryRef.current.length - 2] || avgBaseline;
         const frameDrop = prevEAR - currentEAR;
         
-        // Log for debugging (every 3 frames to avoid spam, but show important changes)
-        const shouldLog = earHistoryRef.current.length % 3 === 0 || 
-                         absoluteDrop >= 0.02 || 
-                         frameDrop >= 0.02;
-        if (shouldLog) {
-          console.log('EAR Debug:', {
-            current: currentEAR.toFixed(3),
-            baseline: avgBaseline.toFixed(3),
-            prev: prevEAR.toFixed(3),
-            absoluteDrop: absoluteDrop.toFixed(3),
-            frameDrop: frameDrop.toFixed(3),
-            relativeDrop: (relativeDrop * 100).toFixed(1) + '%',
-            threshold: (EAR_DROP_THRESHOLD * 100).toFixed(0) + '%',
-            minAbsDrop: MIN_ABSOLUTE_DROP.toFixed(2)
-          });
-        }
+        // Also compare with 2 frames ago for more stability
+        const prev2EAR = earHistoryRef.current.length >= 3 
+          ? earHistoryRef.current[earHistoryRef.current.length - 3] 
+          : prevEAR;
+        const twoFrameDrop = prev2EAR - currentEAR;
         
-        // Blink detected if ANY of these conditions are met (very sensitive):
-        // 1. Relative drop >= 4% AND current < 97% of baseline
-        // 2. Absolute drop >= 0.03 AND current < baseline
-        // 3. Frame-to-frame drop >= 0.04 (sudden drop in one frame)
-        const condition1 = relativeDrop >= EAR_DROP_THRESHOLD && currentEAR < avgBaseline * 0.97;
-        const condition2 = absoluteDrop >= MIN_ABSOLUTE_DROP && currentEAR < avgBaseline;
-        const condition3 = frameDrop >= 0.04 && currentEAR < prevEAR * 0.95;
+        // Log for debugging (every frame for maximum visibility)
+        console.log('EAR Debug:', {
+          current: currentEAR.toFixed(3),
+          baseline: avgBaseline.toFixed(3),
+          prev: prevEAR.toFixed(3),
+          prev2: prev2EAR.toFixed(3),
+          absoluteDrop: absoluteDrop.toFixed(3),
+          frameDrop: frameDrop.toFixed(3),
+          twoFrameDrop: twoFrameDrop.toFixed(3),
+          relativeDrop: (relativeDrop * 100).toFixed(1) + '%',
+          thresholds: {
+            abs: MIN_ABSOLUTE_DROP.toFixed(3),
+            rel: (MIN_RELATIVE_DROP * 100).toFixed(0) + '%',
+            frame: MIN_FRAME_DROP.toFixed(3)
+          }
+        });
         
-        if (avgBaseline >= MIN_BASELINE_EAR && (condition1 || condition2 || condition3)) {
+        // Maximum sensitivity: ANY drop condition triggers blink
+        // Condition 1: Absolute drop >= 0.015
+        // Condition 2: Relative drop >= 2%
+        // Condition 3: Frame-to-frame drop >= 0.015
+        // Condition 4: Two-frame drop >= 0.02 (catches slower blinks)
+        // Condition 5: Current EAR is lower than baseline (even slightly)
+        const hasAbsoluteDrop = absoluteDrop >= MIN_ABSOLUTE_DROP;
+        const hasRelativeDrop = relativeDrop >= MIN_RELATIVE_DROP;
+        const hasFrameDrop = frameDrop >= MIN_FRAME_DROP;
+        const hasTwoFrameDrop = twoFrameDrop >= 0.02;
+        const isLower = currentEAR < avgBaseline;
+        
+        // Blink detected if baseline is valid AND any drop condition is met AND current is lower
+        if (avgBaseline >= MIN_BASELINE_EAR && 
+            (hasAbsoluteDrop || hasRelativeDrop || hasFrameDrop || hasTwoFrameDrop) &&
+            isLower) {
           console.log('✅ Blink detected!', {
             currentEAR: currentEAR.toFixed(3),
             baseline: avgBaseline.toFixed(3),
             prevEAR: prevEAR.toFixed(3),
             absoluteDrop: absoluteDrop.toFixed(3),
             frameDrop: frameDrop.toFixed(3),
+            twoFrameDrop: twoFrameDrop.toFixed(3),
             relativeDrop: (relativeDrop * 100).toFixed(1) + '%',
-            condition: condition1 ? 'relative' : condition2 ? 'absolute' : 'frame-drop'
+            condition: hasAbsoluteDrop ? 'absolute' : hasRelativeDrop ? 'relative' : hasFrameDrop ? 'frame' : 'two-frame'
           });
           return true; // Blink detected
         }
@@ -316,16 +367,38 @@ function VerificationContent() {
     if (!videoRef.current || !isCameraActive) return;
 
     try {
-      // Load model if not loaded
-      if (!modelRef.current) {
+      // Set waiting state immediately for better UX
+      setIsWaitingForBlink(true);
+      setError(null); // Clear previous errors
+      
+      // Wait for model to load if it's still loading (but only if not already loaded)
+      if (isModelLoading && !isModelLoaded && !modelRef.current) {
+        console.log('Waiting for model to finish loading...');
+        // Wait up to 10 seconds for model to load
+        let waitCount = 0;
+        while (isModelLoading && !isModelLoaded && !modelRef.current && waitCount < 100) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          waitCount++;
+        }
+      }
+      
+      // Load model if not loaded yet and not currently loading
+      if (!modelRef.current && !isModelLoading) {
         try {
           await loadModel();
         } catch (modelError: any) {
           console.error('Model loading error:', modelError);
-          setError(`Gagal memuat model: ${modelError.message || 'Unknown error'}. Silakan coba refresh halaman atau gunakan verifikasi manual.`);
+          setError(`Gagal memuat model: ${modelError.message || 'Unknown error'}. Silakan coba refresh halaman.`);
           setIsWaitingForBlink(false);
           return;
         }
+      }
+      
+      // If model is still loading after wait, show error
+      if (isModelLoading && !modelRef.current) {
+        setError('Model masih dimuat. Mohon tunggu sebentar.');
+        setIsWaitingForBlink(false);
+        return;
       }
 
       // Verify model is loaded
@@ -335,12 +408,10 @@ function VerificationContent() {
         return;
       }
 
-      setIsWaitingForBlink(true);
       setIsBlinkDetected(false);
       isBlinkDetectedRef.current = false;
       setBlinkCount(0);
       earHistoryRef.current = [];
-      setError(null); // Clear previous errors
 
       const detectLoop = async () => {
         // Check if we should stop
@@ -650,13 +721,17 @@ function VerificationContent() {
     if (isCameraActive && videoRef.current && !verificationResult && !isWaitingForBlink && !isBlinkDetected && !autoStartAttemptedRef.current) {
       const video = videoRef.current;
       
-      // Check if video is actually playing
+      // Check if video is actually playing and model is ready - faster retry
       const checkAndStart = () => {
-        if (video.readyState >= 2 && !video.paused && video.currentTime > 0) {
-          console.log('Video is ready, auto-starting blink detection...');
+        // Check if model is loaded (or at least not loading anymore)
+        const modelReady = isModelLoaded || (!isModelLoading && modelRef.current);
+        
+        // More lenient check - just need video to be ready and model to be ready
+        if (video.readyState >= 2 && modelReady) {
+          console.log('Video and model are ready, auto-starting blink detection...');
           autoStartAttemptedRef.current = true;
           
-          // Small delay to ensure everything is stable
+          // Minimal delay to ensure video stream is stable
           setTimeout(async () => {
             if (isCameraActive && videoRef.current && !isWaitingForBlink && !isBlinkDetected) {
               try {
@@ -666,22 +741,22 @@ function VerificationContent() {
                 autoStartAttemptedRef.current = false; // Reset on error to allow retry
               }
             }
-          }, 800); // Wait 800ms for video to fully stabilize
+          }, 200); // Reduced from 800ms to 200ms for faster start
         } else {
-          // Retry after a short delay
-          setTimeout(checkAndStart, 200);
+          // Faster retry - check every 50ms
+          setTimeout(checkAndStart, 50);
         }
       };
 
-      // Start checking after a short delay
-      setTimeout(checkAndStart, 500);
+      // Start checking immediately (reduced from 500ms)
+      checkAndStart();
     }
     
     // Reset auto-start flag when camera is turned off
     if (!isCameraActive) {
       autoStartAttemptedRef.current = false;
     }
-  }, [isCameraActive, verificationResult, isWaitingForBlink, isBlinkDetected]);
+  }, [isCameraActive, verificationResult, isWaitingForBlink, isBlinkDetected, isModelLoaded, isModelLoading]);
 
   // Cleanup camera on unmount
   useEffect(() => {

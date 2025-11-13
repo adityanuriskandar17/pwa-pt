@@ -11,9 +11,20 @@ datasource db {
 }
 
 model User {
-  id        Int     @id @default(autoincrement())
-  email     String  @db.VarChar(255)
-  password  String  @db.VarChar(255)
+  id        BigInt  @id @map("id") @db.BigInt
+  email     String? @map("email") @db.VarChar(255)
+  password  String? @map("password") @db.VarChar(255)
+  roleId    BigInt? @map("role_id") @db.BigInt
+  clubId    BigInt? @map("club_id") @db.BigInt
+  
+  @@map("user")
+}
+
+model Club {
+  id    BigInt  @id @map("id") @db.BigInt
+  name  String? @map("name") @db.VarChar(255)
+  
+  @@map("club")
 }
 
 model Member {
