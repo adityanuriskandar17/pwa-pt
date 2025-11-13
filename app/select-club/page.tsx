@@ -160,7 +160,7 @@ export default function SelectClubPage() {
                 <Button
                   key={index}
                   onClick={() => handleSelectClub(club)}
-                  className="h-auto p-0 flex flex-col items-center justify-center border-2 border-gray-200 hover:border-purple-500 transition-all text-center group aspect-square overflow-hidden relative"
+                  className="h-auto p-0 flex flex-col items-center justify-center border border-white/20 hover:border-amber-400/60 transition-all duration-300 text-center group aspect-square overflow-hidden relative shadow-lg hover:shadow-2xl hover:scale-105"
                   style={{
                     backgroundImage: 'url(https://ftlgym.com/wp-content/uploads/2025/07/resized_Akses-ke-Semua-Klub-FTL-GYM-dan-Klub-STRIDE.png)',
                     backgroundSize: 'cover',
@@ -168,17 +168,21 @@ export default function SelectClubPage() {
                     backgroundRepeat: 'no-repeat',
                   }}
                 >
-                  {/* Overlay untuk readability */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-purple-900/70 via-blue-900/70 to-purple-800/70 group-hover:from-purple-800/80 group-hover:via-blue-800/80 group-hover:to-purple-700/80 transition-all"></div>
+                  {/* Overlay elegan dengan gradient hitam halus */}
+                  <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-black/70 group-hover:from-black/50 group-hover:via-black/40 group-hover:to-black/60 transition-all duration-300"></div>
+                  
+                  {/* Border glow effect saat hover */}
+                  <div className="absolute inset-0 border-2 border-transparent group-hover:border-amber-400/40 rounded-sm transition-all duration-300 opacity-0 group-hover:opacity-100"></div>
                   
                   {/* Content */}
                   <div className="relative z-10 p-6 w-full h-full flex flex-col items-center justify-center">
-                    <div className="w-12 h-12 rounded-lg bg-white/20 backdrop-blur-sm flex items-center justify-center mb-3 group-hover:bg-white/30 transition-colors">
-                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    {/* Icon dengan background elegan */}
+                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-600/30 backdrop-blur-md border border-amber-400/30 flex items-center justify-center mb-4 group-hover:from-amber-500/30 group-hover:to-amber-600/40 group-hover:border-amber-400/50 transition-all duration-300 shadow-lg">
+                      <svg className="w-7 h-7 text-amber-300 group-hover:text-amber-200 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                       </svg>
                     </div>
-                    <span className="font-bold text-white drop-shadow-lg group-hover:text-white transition-colors text-sm leading-tight">
+                    <span className="font-semibold text-white text-sm leading-tight tracking-wide drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] group-hover:text-amber-100 transition-colors duration-300 px-2 text-center">
                       {club}
                     </span>
                   </div>
