@@ -109,6 +109,7 @@ function VerificationContent() {
         }
       }
 
+      // Set video constraints untuk landscape mode
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
           facingMode: 'user',
@@ -400,7 +401,14 @@ function VerificationContent() {
               </div>
 
               {/* Video Container */}
-              <div className="relative w-full max-w-lg mx-auto aspect-video bg-gray-900 rounded-2xl overflow-hidden">
+              <div 
+                className="relative w-full max-w-lg mx-auto bg-gray-900 rounded-2xl overflow-hidden" 
+                style={{ 
+                  aspectRatio: '4/3', 
+                  maxHeight: 'calc(100vh - 400px)', 
+                  minHeight: '300px' 
+                }}
+              >
                 {/* Video Element - Always render but conditionally show */}
                 <div className={`relative w-full h-full ${!isCameraActive || verificationResult?.success ? 'hidden' : ''}`}>
                   <video
@@ -408,7 +416,7 @@ function VerificationContent() {
                     autoPlay
                     playsInline
                     muted
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                     style={{ transform: 'scaleX(-1)' }}
                   />
                   {isScanning && (
