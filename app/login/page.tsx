@@ -356,7 +356,7 @@ export default function LoginPage() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setIsCameraActive(true);
-        setError(null);
+        setError('');
         
         setTimeout(() => {
           if (videoRef.current) {
@@ -408,7 +408,7 @@ export default function LoginPage() {
     stopBlinkDetection();
 
     setIsScanning(true);
-    setError(null);
+    setError('');
 
     try {
       const imageBase64 = captureFrameFromVideo(videoRef.current);
@@ -462,7 +462,7 @@ export default function LoginPage() {
         video.play()
           .then(() => {
             console.log('Video playing successfully');
-            setError(null);
+            setError('');
           })
           .catch(err => {
             console.error('Error playing video:', err);
@@ -472,7 +472,7 @@ export default function LoginPage() {
 
       const handlePlay = () => {
         console.log('Video is playing');
-        setError(null);
+        setError('');
       };
 
       const handleError = (e: any) => {
@@ -577,7 +577,7 @@ export default function LoginPage() {
             </div>
             <div>
               <CardTitle className="text-2xl font-semibold text-gray-900 mb-1.5 tracking-tight">
-                Welcome Back
+                PT Conducting System
               </CardTitle>
               <CardDescription className="text-sm text-gray-500 font-normal">
                 Login dengan Face Recognition
