@@ -3,9 +3,10 @@ import { prisma } from '@/lib/prisma';
 
 export async function GET(request: NextRequest) {
   try {
-    // Get club_name from query parameter
+    // Get club_name and pt_name from query parameters
     const { searchParams } = new URL(request.url);
     const clubName = searchParams.get('club_name');
+    const ptName = searchParams.get('pt_name'); // Nama Personal Trainer untuk filter (jika role_id = 11)
 
     if (!clubName) {
       return NextResponse.json(
@@ -20,35 +21,79 @@ export async function GET(request: NextRequest) {
 
     // Fetch bookings dengan JOIN ke tabel member untuk mendapatkan nama member
     // Filter berdasarkan club_name yang dipilih
-    const bookings = await prisma.$queryRaw`
-      SELECT 
-        lb.id,
-        lb.member_id,
-        lb.resource_name,
-        lb.club_name,
-        CASE 
-          WHEN m.first_name IS NOT NULL AND m.last_name IS NOT NULL AND m.first_name != '' AND m.last_name != ''
-            THEN CONCAT(TRIM(m.first_name), ' ', TRIM(m.last_name))
-          WHEN m.first_name IS NOT NULL AND m.first_name != ''
-            THEN TRIM(m.first_name)
-          WHEN m.last_name IS NOT NULL AND m.last_name != ''
-            THEN TRIM(m.last_name)
-          ELSE 'Unknown Member'
-        END as member_name
-      FROM list_booking lb
-      LEFT JOIN member m ON lb.member_id = m.member_id
-      WHERE (lb.is_cancelled IS NULL OR lb.is_cancelled = 0)
-        AND lb.member_id IS NOT NULL
-        AND lb.club_name = ${clubName}
-      ORDER BY lb.id DESC
-      LIMIT 100
-    ` as Array<{
+    // Jika pt_name diberikan, filter juga berdasarkan resource_name (untuk Personal Trainer)
+    let bookings: Array<{
       id: bigint | null;
       member_id: bigint | null;
       resource_name: string | null;
       club_name: string | null;
       member_name: string | null;
     }>;
+
+    if (ptName) {
+      // Filter untuk Personal Trainer - hanya tampilkan booking dimana resource_name = ptName
+      bookings = await prisma.$queryRaw`
+        SELECT 
+          lb.id,
+          lb.member_id,
+          lb.resource_name,
+          lb.club_name,
+          CASE 
+            WHEN m.first_name IS NOT NULL AND m.last_name IS NOT NULL AND m.first_name != '' AND m.last_name != ''
+              THEN CONCAT(TRIM(m.first_name), ' ', TRIM(m.last_name))
+            WHEN m.first_name IS NOT NULL AND m.first_name != ''
+              THEN TRIM(m.first_name)
+            WHEN m.last_name IS NOT NULL AND m.last_name != ''
+              THEN TRIM(m.last_name)
+            ELSE 'Unknown Member'
+          END as member_name
+        FROM list_booking lb
+        LEFT JOIN member m ON lb.member_id = m.member_id
+        WHERE (lb.is_cancelled IS NULL OR lb.is_cancelled = 0)
+          AND lb.member_id IS NOT NULL
+          AND lb.club_name = ${clubName}
+          AND LOWER(TRIM(lb.resource_name)) = LOWER(TRIM(${ptName}))
+        ORDER BY lb.id DESC
+        LIMIT 100
+      ` as Array<{
+        id: bigint | null;
+        member_id: bigint | null;
+        resource_name: string | null;
+        club_name: string | null;
+        member_name: string | null;
+      }>;
+    } else {
+      // Tanpa filter PT - tampilkan semua booking di club tersebut
+      bookings = await prisma.$queryRaw`
+        SELECT 
+          lb.id,
+          lb.member_id,
+          lb.resource_name,
+          lb.club_name,
+          CASE 
+            WHEN m.first_name IS NOT NULL AND m.last_name IS NOT NULL AND m.first_name != '' AND m.last_name != ''
+              THEN CONCAT(TRIM(m.first_name), ' ', TRIM(m.last_name))
+            WHEN m.first_name IS NOT NULL AND m.first_name != ''
+              THEN TRIM(m.first_name)
+            WHEN m.last_name IS NOT NULL AND m.last_name != ''
+              THEN TRIM(m.last_name)
+            ELSE 'Unknown Member'
+          END as member_name
+        FROM list_booking lb
+        LEFT JOIN member m ON lb.member_id = m.member_id
+        WHERE (lb.is_cancelled IS NULL OR lb.is_cancelled = 0)
+          AND lb.member_id IS NOT NULL
+          AND lb.club_name = ${clubName}
+        ORDER BY lb.id DESC
+        LIMIT 100
+      ` as Array<{
+        id: bigint | null;
+        member_id: bigint | null;
+        resource_name: string | null;
+        club_name: string | null;
+        member_name: string | null;
+      }>;
+    }
 
     // Transform data untuk frontend
     const transformedData = bookings.map((booking, index) => {

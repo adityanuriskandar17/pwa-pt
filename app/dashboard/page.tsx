@@ -24,6 +24,7 @@ import { Card, CardContent } from '@/components/ui/card';
 interface User {
   id: number;
   email: string;
+  name?: string; // Nama dari face recognition
   roleId?: number | null;
   clubId?: number | null;
   clubName?: string | null;
@@ -132,7 +133,14 @@ export default function DashboardPage() {
       try {
         setLoading(true);
         // Fetch data dari API dengan club_name
-        const response = await fetch(`/api/bookings?club_name=${encodeURIComponent(selectedClub)}`);
+        // Jika role_id = 11 (Personal Trainer), tambahkan filter pt_name
+        let apiUrl = `/api/bookings?club_name=${encodeURIComponent(selectedClub)}`;
+        if (user.roleId === 11 && user.name) {
+          // Personal Trainer: filter berdasarkan nama mereka sendiri
+          apiUrl += `&pt_name=${encodeURIComponent(user.name)}`;
+        }
+        
+        const response = await fetch(apiUrl);
         const result = await response.json();
         
         if (!response.ok || !result.success) {
@@ -254,7 +262,9 @@ export default function DashboardPage() {
               <div>
                 <h1 className="text-xl font-bold text-gray-900">FTL Dashboard</h1>
                 <p className="text-xs text-gray-500">
-                  {user.roleId === 11 && user.clubName 
+                  {user.roleId === 11 && user.name
+                    ? `${user.name} - ${user.clubName || selectedClub || ''}`
+                    : user.roleId === 11 && user.clubName 
                     ? user.clubName 
                     : selectedClub || 'Face Recognition System'}
                 </p>
@@ -441,14 +451,16 @@ export default function DashboardPage() {
                         <span>Member</span>
                       </div>
                     </TableHead>
-                    <TableHead className="font-semibold text-gray-700 py-4 px-6">
-                      <div className="flex items-center gap-2">
-                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                        </svg>
-                        <span>Personal Trainer</span>
-                      </div>
-                    </TableHead>
+                    {user.roleId !== 11 && (
+                      <TableHead className="font-semibold text-gray-700 py-4 px-6">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                          </svg>
+                          <span>Personal Trainer</span>
+                        </div>
+                      </TableHead>
+                    )}
                     <TableHead className="font-semibold text-gray-700 py-4 px-6">Status</TableHead>
                     <TableHead className="font-semibold text-gray-700 py-4 px-6 text-right w-32">Action</TableHead>
                   </TableRow>
@@ -456,7 +468,7 @@ export default function DashboardPage() {
                 <TableBody>
                   {filteredData.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-12 text-center">
+                      <TableCell colSpan={user.roleId === 11 ? 4 : 5} className="py-12 text-center">
                         <div className="flex flex-col items-center justify-center">
                           <svg className="w-12 h-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -502,24 +514,26 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="py-4 px-6">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-gray-700 font-medium truncate">{row.pt}</span>
-                          {row.ptVerified ? (
-                            <div className="flex items-center flex-shrink-0" title="PT sudah terverifikasi">
-                              <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                              </svg>
-                            </div>
-                          ) : (
-                            <div className="flex items-center flex-shrink-0" title="PT belum terverifikasi">
-                              <svg className="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                              </svg>
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
+                      {user.roleId !== 11 && (
+                        <TableCell className="py-4 px-6">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-gray-700 font-medium truncate">{row.pt}</span>
+                            {row.ptVerified ? (
+                              <div className="flex items-center flex-shrink-0" title="PT sudah terverifikasi">
+                                <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                            ) : (
+                              <div className="flex items-center flex-shrink-0" title="PT belum terverifikasi">
+                                <svg className="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
                       <TableCell className="py-4 px-6">
                         {row.memberVerified && row.ptVerified ? (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
