@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get API URL from environment variable (server-side, tidak perlu NEXT_PUBLIC_)
-    const faceApiUrl = process.env.FACE_API_URL || 'http://127.0.0.1:8088/api/validate-face';
+    const faceApiUrl = process.env.FACE_API_URL || 'https://identity.ftlgym.com/api/validate-face';
 
     console.log('Calling face recognition API:', faceApiUrl);
 
