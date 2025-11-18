@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +40,12 @@ interface TableData {
   ptVerified: boolean; // Status verifikasi PT
   bookingId?: number | null;
   memberId?: number | null;
+  startDate?: string; // Tanggal start (hari, tanggal)
+  startTime?: string; // Waktu start (HH:MM)
+  endTime?: string;
+  gateVerified?: boolean; // Status verifikasi Gate
+  bookingListVerified?: boolean; // Status verifikasi Booking List
+  faceVerified?: boolean; // Status verifikasi Face
 }
 
 export default function DashboardPage() {
@@ -54,16 +60,46 @@ export default function DashboardPage() {
   const [showStatistics, setShowStatistics] = useState(true);
   const [clubs, setClubs] = useState<string[]>([]);
   const [selectedClub, setSelectedClub] = useState<string>('');
+  const [serverTime, setServerTime] = useState<Date | null>(null);
+  const [timeOffset, setTimeOffset] = useState<number>(0);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [dateInputValue, setDateInputValue] = useState<string>('');
+  const datePickerRef = useRef<HTMLInputElement>(null);
+  const [filterGateVerified, setFilterGateVerified] = useState<boolean | null>(null); // null = semua, true = hanya yang checklist, false = hanya yang belum
 
-  // Filter data based on search query
+  // Filter data based on search query, date, and gate status
   const filteredData = tableData.filter((row) => {
+    // Filter by search query
     const query = searchQuery.toLowerCase().trim();
-    if (!query) return true;
-    return (
+    const matchesSearch = !query || (
       row.member.toLowerCase().includes(query) ||
       row.pt.toLowerCase().includes(query) ||
       row.nomor.toString().includes(query)
     );
+
+    // Filter by date
+    let matchesDate = true;
+    if (selectedDate && row.startDate) {
+      // Extract tanggal dari row.startDate (format: "Kamis, 30/10/2025")
+      const dateMatch = row.startDate.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if (dateMatch) {
+        const [, day, month, year] = dateMatch;
+        // Format: YYYY-MM-DD untuk perbandingan
+        const rowDateStr = `${year}-${month}-${day}`;
+        // selectedDate sudah dalam format YYYY-MM-DD
+        matchesDate = rowDateStr === selectedDate;
+      } else {
+        matchesDate = false;
+      }
+    }
+
+    // Filter by gate status
+    let matchesGate = true;
+    if (filterGateVerified !== null) {
+      matchesGate = row.gateVerified === filterGateVerified;
+    }
+
+    return matchesSearch && matchesDate && matchesGate;
   });
 
   // Pagination calculations
@@ -72,10 +108,10 @@ export default function DashboardPage() {
   const endIndex = startIndex + itemsPerPage;
   const paginatedData = filteredData.slice(startIndex, endIndex);
 
-  // Reset to page 1 when search query changes
+  // Reset to page 1 when search query, date filter, or gate filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, selectedDate, filterGateVerified]);
 
   // Calculate statistics based on filtered data
   const totalMembers = tableData.length;
@@ -134,7 +170,9 @@ export default function DashboardPage() {
         setLoading(true);
         // Fetch data dari API dengan club_name
         // Jika role_id = 11 (Personal Trainer), tambahkan filter pt_name
-        let apiUrl = `/api/bookings?club_name=${encodeURIComponent(selectedClub)}`;
+        // Jika "All Club" dipilih, kirim "All Club" sebagai club_name
+        const clubParam = selectedClub === 'All Club' ? 'All Club' : selectedClub;
+        let apiUrl = `/api/bookings?club_name=${encodeURIComponent(clubParam)}`;
         if (user.roleId === 11 && user.name) {
           // Personal Trainer: filter berdasarkan nama mereka sendiri
           apiUrl += `&pt_name=${encodeURIComponent(user.name)}`;
@@ -185,8 +223,11 @@ export default function DashboardPage() {
           }
         }
 
-        // Update status berdasarkan verifikasi
+        // Update status berdasarkan verifikasi dan update faceVerified
         initialData = initialData.map(row => {
+          // Update faceVerified berdasarkan memberVerified && ptVerified
+          const faceVerified = row.memberVerified && row.ptVerified;
+          
           let status = 'Valid';
           if (!row.memberVerified && !row.ptVerified) {
             status = 'Belum Validasi';
@@ -195,7 +236,7 @@ export default function DashboardPage() {
           } else if (!row.ptVerified) {
             status = 'Personal Trainer Belum Validasi';
           }
-          return { ...row, status };
+          return { ...row, status, faceVerified };
         });
 
         setTableData(initialData);
@@ -210,6 +251,125 @@ export default function DashboardPage() {
 
     fetchData();
   }, [selectedClub, user]);
+
+  // Fetch server time and update periodically
+  useEffect(() => {
+    let offsetRef = 0;
+    
+    const fetchServerTime = async () => {
+      try {
+        const response = await fetch('/api/server-time');
+        const data = await response.json();
+        
+        if (data.success && data.timestamp) {
+          const serverTimestamp = data.timestamp;
+          const clientTimestamp = Date.now();
+          // Calculate offset between server and client
+          offsetRef = serverTimestamp - clientTimestamp;
+          setTimeOffset(offsetRef);
+          setServerTime(new Date(serverTimestamp));
+        }
+      } catch (error) {
+        console.error('Error fetching server time:', error);
+        // Fallback to client time if server time fails
+        setServerTime(new Date());
+      }
+    };
+
+    // Fetch immediately
+    fetchServerTime();
+
+    // Update every second
+    const interval = setInterval(() => {
+      if (offsetRef !== 0) {
+        // Use offset to calculate server time
+        const currentServerTime = new Date(Date.now() + offsetRef);
+        setServerTime(currentServerTime);
+      } else {
+        // If offset not set yet, fetch again
+        fetchServerTime();
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Format time for display
+  const formatTime = (date: Date | null): string => {
+    if (!date) return '--:--:--';
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const seconds = date.getSeconds().toString().padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
+  };
+
+  const formatDate = (date: Date | null): string => {
+    if (!date) return '--/--/----';
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const dayName = dayNames[date.getDay()];
+    return `${dayName}, ${day}/${month}/${year}`;
+  };
+
+  // Format tanggal dengan bulan singkatan: dd/Oct/yyyy
+  const formatDateWithMonthAbbr = (dateString: string): string => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString;
+    
+    const day = date.getDate().toString().padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  // Parse format dd/Oct/yyyy menjadi YYYY-MM-DD
+  const parseDateFromAbbr = (dateStr: string): string => {
+    if (!dateStr) return '';
+    
+    // Format: dd/Mmm/yyyy atau dd/Mmm/yy
+    const match = dateStr.match(/^(\d{1,2})\/([A-Za-z]{3})\/(\d{4}|\d{2})$/);
+    if (!match) return '';
+    
+    const [, day, monthAbbr, yearStr] = match;
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthIndex = monthNames.findIndex(m => m.toLowerCase() === monthAbbr.toLowerCase());
+    
+    if (monthIndex === -1) return '';
+    
+    const year = yearStr.length === 2 ? `20${yearStr}` : yearStr;
+    const month = (monthIndex + 1).toString().padStart(2, '0');
+    const dayPadded = day.padStart(2, '0');
+    
+    return `${year}-${month}-${dayPadded}`;
+  };
+
+  // Handle date input change
+  const handleDateInputChange = (value: string) => {
+    setDateInputValue(value);
+    const parsed = parseDateFromAbbr(value);
+    if (parsed) {
+      setSelectedDate(parsed);
+    } else if (!value) {
+      setSelectedDate('');
+    }
+  };
+
+  // Sync dateInputValue when selectedDate changes externally
+  useEffect(() => {
+    if (selectedDate) {
+      const formatted = formatDateWithMonthAbbr(selectedDate);
+      if (formatted !== dateInputValue) {
+        setDateInputValue(formatted);
+      }
+    } else if (dateInputValue) {
+      setDateInputValue('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
 
   const handleLogout = () => {
     sessionStorage.removeItem('user');
@@ -271,6 +431,12 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              {/* Digital Clock */}
+              <div className="hidden sm:flex flex-col items-end px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="text-xs text-gray-500 mb-0.5">{formatDate(serverTime)}</div>
+                <div className="text-lg font-mono font-semibold text-gray-900">{formatTime(serverTime)}</div>
+              </div>
+              
               {/* Club Selector untuk role_id = 1 atau 4 */}
               {(user.roleId === 1 || user.roleId === 4) && clubs.length > 0 && (
                 <Select
@@ -285,6 +451,9 @@ export default function DashboardPage() {
                     <SelectValue placeholder="Pilih Club" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="All Club">
+                      All Club
+                    </SelectItem>
                     {clubs.map((club) => (
                       <SelectItem key={club} value={club}>
                         {club}
@@ -399,34 +568,174 @@ export default function DashboardPage() {
               <h2 className="text-2xl font-bold text-gray-900 mb-1">Data Member</h2>
               <p className="text-sm text-gray-500">Daftar member dan status booking</p>
             </div>
-            <div className="relative w-full sm:w-80">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+              {/* Gate Filter */}
+              <div className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-md bg-white hover:bg-gray-50 transition-colors">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={filterGateVerified === true}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setFilterGateVerified(true);
+                      } else {
+                        setFilterGateVerified(null);
+                      }
+                    }}
+                    className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 focus:ring-2"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span className="text-sm font-medium text-gray-700">Gate Checked</span>
+                  </div>
+                </label>
+                {filterGateVerified === true && (
+                  <button
+                    onClick={() => setFilterGateVerified(null)}
+                    className="ml-1 text-gray-400 hover:text-gray-600"
+                    title="Hapus filter"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
               </div>
-              <Input
-                type="text"
-                placeholder="Cari member atau PT..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 w-full border-gray-300 focus:border-gray-900 focus:ring-gray-900/20"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              {/* Date Filter */}
+              <div className="relative w-full sm:w-auto">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                </button>
-              )}
+                </div>
+                {/* Hidden date input for native date picker */}
+                <input
+                  ref={datePickerRef}
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => {
+                    setSelectedDate(e.target.value);
+                    if (e.target.value) {
+                      setDateInputValue(formatDateWithMonthAbbr(e.target.value));
+                    } else {
+                      setDateInputValue('');
+                    }
+                  }}
+                  className="sr-only"
+                  style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
+                />
+                <Input
+                  type="text"
+                  value={dateInputValue}
+                  onChange={(e) => handleDateInputChange(e.target.value)}
+                  placeholder="dd/Mmm/yyyy"
+                  className="pl-10 pr-20 w-full sm:w-auto border-gray-300 focus:border-gray-900 focus:ring-gray-900/20 h-11"
+                  title="Format: dd/Mmm/yyyy (contoh: 05/Nov/2025) - Ketik manual atau klik icon kalender"
+                />
+                <div className="absolute inset-y-0 right-0 flex items-center gap-1 pr-2">
+                  {dateInputValue && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setDateInputValue('');
+                        setSelectedDate('');
+                      }}
+                      className="flex items-center text-gray-400 hover:text-gray-600 z-30"
+                      title="Hapus filter"
+                    >
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (datePickerRef.current) {
+                        if (datePickerRef.current.showPicker) {
+                          try {
+                            datePickerRef.current.showPicker();
+                          } catch (err) {
+                            datePickerRef.current.focus();
+                            datePickerRef.current.click();
+                          }
+                        } else {
+                          datePickerRef.current.focus();
+                          datePickerRef.current.click();
+                        }
+                      }
+                    }}
+                    className="flex items-center text-gray-400 hover:text-gray-600 z-20"
+                    title="Klik untuk membuka date picker"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              {/* Search Input */}
+              <div className="relative w-full sm:w-80">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <Input
+                  type="text"
+                  placeholder="Cari member atau PT..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 pr-4 w-full border-gray-300 focus:border-gray-900 focus:ring-gray-900/20 h-11"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-          {searchQuery && (
+          {(searchQuery || selectedDate || filterGateVerified !== null) && (
             <div className="mb-4 text-sm text-gray-600">
               Menampilkan <span className="font-semibold text-gray-900">{filteredData.length}</span> dari <span className="font-semibold text-gray-900">{tableData.length}</span> hasil
+              {(selectedDate || searchQuery || filterGateVerified !== null) && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {selectedDate && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-medium">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      {formatDateWithMonthAbbr(selectedDate)}
+                    </span>
+                  )}
+                  {searchQuery && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 text-purple-700 rounded-md text-xs font-medium">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      "{searchQuery}"
+                    </span>
+                  )}
+                  {filterGateVerified === true && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-50 text-green-700 rounded-md text-xs font-medium">
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      Gate Checked
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -437,38 +746,52 @@ export default function DashboardPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-                    <TableHead className="font-semibold text-gray-700 py-4 px-6 w-20">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-gray-500">#</span>
-                        <span>Nomor</span>
+                    <TableHead className="font-semibold text-gray-700 py-3 px-3 w-16">
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-500 text-xs">#</span>
+                        <span className="text-xs">No</span>
                       </div>
                     </TableHead>
-                    <TableHead className="font-semibold text-gray-700 py-4 px-6">
-                      <div className="flex items-center gap-2">
-                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <TableHead className="font-semibold text-gray-700 py-3 px-3 min-w-[180px]">
+                      <div className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                         </svg>
-                        <span>Member</span>
+                        <span className="text-xs">Member</span>
                       </div>
                     </TableHead>
-                    {user.roleId !== 11 && (
-                      <TableHead className="font-semibold text-gray-700 py-4 px-6">
-                        <div className="flex items-center gap-2">
-                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                          </svg>
-                          <span>Personal Trainer</span>
-                        </div>
-                      </TableHead>
-                    )}
-                    <TableHead className="font-semibold text-gray-700 py-4 px-6">Status</TableHead>
-                    <TableHead className="font-semibold text-gray-700 py-4 px-6 text-right w-32">Action</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-3 px-3 min-w-[140px] hidden md:table-cell">
+                      <div className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                        <span className="text-xs">PT</span>
+                      </div>
+                    </TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-3 px-3 min-w-[120px]">
+                      <div className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-xs">Start</span>
+                      </div>
+                    </TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-3 px-3 w-20 hidden lg:table-cell">
+                      <div className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-xs">End</span>
+                      </div>
+                    </TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-3 px-3 min-w-[100px]">Status</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-3 px-3 text-right w-24">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredData.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={user.roleId === 11 ? 4 : 5} className="py-12 text-center">
+                      <TableCell colSpan={7} className="py-12 text-center">
                         <div className="flex flex-col items-center justify-center">
                           <svg className="w-12 h-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -484,97 +807,112 @@ export default function DashboardPage() {
                       key={row.nomor} 
                       className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors group"
                     >
-                      <TableCell className="py-4 px-6">
+                      <TableCell className="py-3 px-3">
                         <div className="flex items-center justify-center">
-                          <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
-                            <span className="text-sm font-semibold text-gray-700">{row.nomor}</span>
+                          <div className="w-7 h-7 rounded bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
+                            <span className="text-xs font-semibold text-gray-700">{row.nomor}</span>
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="py-4 px-6">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs font-semibold text-gray-600 uppercase">{row.member.charAt(0)}</span>
-                          </div>
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <span className="font-medium text-gray-900 truncate">{row.member}</span>
-                            {row.memberVerified ? (
-                              <div className="flex items-center flex-shrink-0" title="Member sudah terverifikasi">
-                                <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                </svg>
-                              </div>
+                      <TableCell className="py-3 px-3">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-sm font-medium text-gray-900 truncate">{row.member}</span>
+                          {row.memberVerified ? (
+                            <div className="flex items-center shrink-0" title="Member sudah terverifikasi">
+                              <svg className="w-3.5 h-3.5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                          ) : (
+                            <div className="flex items-center shrink-0" title="Member belum terverifikasi">
+                              <svg className="w-3.5 h-3.5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3 px-3 hidden md:table-cell">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-sm text-gray-700 font-medium truncate">{row.pt}</span>
+                          {row.ptVerified ? (
+                            <div className="flex items-center shrink-0" title="PT sudah terverifikasi">
+                              <svg className="w-3.5 h-3.5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                          ) : (
+                            <div className="flex items-center shrink-0" title="PT belum terverifikasi">
+                              <svg className="w-3.5 h-3.5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3 px-3">
+                        <div className="flex flex-col gap-0.5 min-w-[100px]">
+                          <span className="text-xs text-gray-600 truncate">{row.startDate || '-'}</span>
+                          <span className="text-xs font-medium text-gray-900">{row.startTime || '-'}</span>
+                          <span className="text-xs text-gray-500 lg:hidden">End: {row.endTime || '-'}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3 px-3 hidden lg:table-cell">
+                        <span className="text-xs font-medium text-gray-900">{row.endTime || '-'}</span>
+                      </TableCell>
+                      <TableCell className="py-3 px-3">
+                        <div className="flex flex-col gap-1">
+                          {/* Gate Status */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-gray-600">Gate</span>
+                            {row.gateVerified ? (
+                              <svg className="w-3.5 h-3.5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
                             ) : (
-                              <div className="flex items-center flex-shrink-0" title="Member belum terverifikasi">
-                                <svg className="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                </svg>
-                              </div>
+                              <svg className="w-3.5 h-3.5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                          {/* Booking List Status */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-gray-600">Booking</span>
+                            {row.bookingListVerified ? (
+                              <svg className="w-3.5 h-3.5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                            ) : (
+                              <svg className="w-3.5 h-3.5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                          {/* Face Status */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-gray-600">Face</span>
+                            {row.faceVerified || (row.memberVerified && row.ptVerified) ? (
+                              <svg className="w-3.5 h-3.5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                            ) : (
+                              <svg className="w-3.5 h-3.5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                              </svg>
                             )}
                           </div>
                         </div>
                       </TableCell>
-                      {user.roleId !== 11 && (
-                        <TableCell className="py-4 px-6">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-gray-700 font-medium truncate">{row.pt}</span>
-                            {row.ptVerified ? (
-                              <div className="flex items-center flex-shrink-0" title="PT sudah terverifikasi">
-                                <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                </svg>
-                              </div>
-                            ) : (
-                              <div className="flex items-center flex-shrink-0" title="PT belum terverifikasi">
-                                <svg className="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                </svg>
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                      )}
-                      <TableCell className="py-4 px-6">
-                        {row.memberVerified && row.ptVerified ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            Valid
-                          </span>
-                        ) : !row.memberVerified && !row.ptVerified ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700 border border-yellow-200">
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                            </svg>
-                            Member & PT Belum Validasi
-                          </span>
-                        ) : !row.memberVerified ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700 border border-yellow-200">
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                            </svg>
-                            Member Belum Validasi
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700 border border-yellow-200">
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                            </svg>
-                            Personal Trainer Belum Validasi
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="py-4 px-6 text-right">
+                      <TableCell className="py-3 px-3 text-right">
                         <Button
                           onClick={() => handleAction(row)}
                           size="sm"
-                          className="bg-gray-900 hover:bg-gray-800 text-white font-medium shadow-sm hover:shadow-md transition-all duration-200 px-4 py-2 rounded-lg text-sm"
+                          className="bg-gray-900 hover:bg-gray-800 text-white text-xs px-2.5 py-1.5 h-auto"
                         >
-                          <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
-                          Validasi
+                          <span className="hidden sm:inline">Validasi</span>
                         </Button>
                       </TableCell>
                     </TableRow>

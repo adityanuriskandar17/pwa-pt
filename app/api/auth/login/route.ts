@@ -1,148 +1,133 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import crypto from 'crypto';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { image_b64 } = body;
+    const { email, password } = body;
 
-    if (!image_b64) {
+    if (!email || !password) {
       return NextResponse.json(
-        { error: 'Gambar wajah harus diisi' },
+        { error: 'Email dan password harus diisi' },
         { status: 400 }
       );
     }
 
-    // Get API URL from environment variable
-    const faceApiUrl = process.env.FACE_API_URL || 'https://identity.ftlgym.com/api/validate-face';
-
-    console.log('Calling face recognition API for login:', faceApiUrl);
-
-    // Validate face dengan face recognition API
-    const faceResponse = await fetch(faceApiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        image_b64: image_b64,
-      }),
-    });
-
-    if (!faceResponse.ok) {
-      const errorText = await faceResponse.text();
-      console.error('Face API error:', faceResponse.status, errorText);
-      return NextResponse.json(
-        { error: 'Wajah tidak terdaftar atau tidak dapat dikenali' },
-        { status: 401 }
-      );
-    }
-
-    const faceData = await faceResponse.json();
-
-    // Check if face is matched - jika wajah terdeteksi dan terdaftar, izinkan login
-    if (!faceData.ok || !faceData.matched) {
-      console.log('Face not matched:', faceData);
-      return NextResponse.json(
-        { error: 'Wajah tidak terdaftar atau tidak cocok' },
-        { status: 401 }
-      );
-    }
-
-    // Wajah terdeteksi dan terdaftar - izinkan login
-    console.log('Face matched successfully:', faceData.candidate);
-
-    // Ambil data dari face recognition result
-    const candidate = faceData.candidate || {};
-    const email = candidate.email;
-    const name = candidate.name || `${candidate.first_name || ''} ${candidate.last_name || ''}`.trim();
-
-    // Coba cari user di database berdasarkan email (opsional - untuk mendapatkan role_id dan club_id)
-    let userData: {
+    // Query user dari database (case-insensitive email)
+    let user: Array<{
       id: bigint;
       email: string;
+      password: string;
       role_id: bigint | null;
       club_id: bigint | null;
-    } | null = null;
-
-    if (email) {
-      try {
-        const user = await prisma.$queryRaw`
-          SELECT 
-            id,
-            email,
-            role_id,
-            club_id
-          FROM user
-          WHERE LOWER(email) = LOWER(${email})
-          LIMIT 1
-        ` as Array<{
-          id: bigint;
-          email: string;
-          role_id: bigint | null;
-          club_id: bigint | null;
-        }>;
-
-        if (user && user.length > 0) {
-          userData = user[0];
-          console.log('User found in database:', { id: userData.id, email: userData.email });
-        } else {
-          console.log('User not found in database, using face recognition data only');
-        }
-      } catch (dbError: any) {
-        console.error('Database query error (non-critical):', dbError);
-        // Continue without database data - use face recognition data only
-      }
+    }>;
+    
+    try {
+      // Use LOWER() for case-insensitive email comparison
+      user = await prisma.$queryRaw`
+        SELECT 
+          id,
+          email,
+          password,
+          role_id,
+          club_id
+        FROM user
+        WHERE LOWER(email) = LOWER(${email})
+        LIMIT 1
+      ` as Array<{
+        id: bigint;
+        email: string;
+        password: string;
+        role_id: bigint | null;
+        club_id: bigint | null;
+      }>;
+    } catch (dbError: any) {
+      console.error('Database query error:', dbError);
+      console.error('Error details:', {
+        message: dbError.message,
+        code: dbError.code,
+        sqlState: dbError.sqlState
+      });
+      return NextResponse.json(
+        { error: 'Terjadi kesalahan saat mengakses database. Pastikan database sedang berjalan.' },
+        { status: 500 }
+      );
     }
 
-    // Jika user ditemukan di database, gunakan data dari database
-    // Jika tidak, gunakan data dari face recognition
+    if (!user || user.length === 0) {
+      console.log('User not found for email:', email);
+      return NextResponse.json(
+        { error: 'Email atau password salah' },
+        { status: 401 }
+      );
+    }
+
+    const userData = user[0];
+    console.log('User found:', { id: userData.id, email: userData.email, hasPassword: !!userData.password });
+
+    // Verify password dengan format: SHA256('ftl#!' + password)
+    const trimmedPassword = password.trim();
+    const storedPassword = (userData.password || '').trim();
+    
+    // Format yang benar: SHA256('ftl#!' + password)
+    const secretKey = 'ftl#!';
+    const passwordWithSecret = secretKey + trimmedPassword;
+    const hashedPassword = crypto.createHash('sha256').update(passwordWithSecret).digest('hex');
+    
+    // Compare dengan stored password
+    const isPasswordValid = storedPassword === hashedPassword || 
+                           storedPassword.toLowerCase() === hashedPassword.toLowerCase();
+    
+    if (!isPasswordValid) {
+      console.log('Password mismatch:', {
+        providedLength: trimmedPassword.length,
+        storedLength: storedPassword.length,
+        storedFirstChars: storedPassword.substring(0, 10) + '...',
+        hashedFirstChars: hashedPassword.substring(0, 10) + '...',
+        match: storedPassword === hashedPassword,
+        lowerMatch: storedPassword.toLowerCase() === hashedPassword.toLowerCase()
+      });
+      return NextResponse.json(
+        { error: 'Email atau password salah' },
+        { status: 401 }
+      );
+    }
+    
+    console.log('Password verified successfully');
+
+    // Jika role_id = 11 (Personal Trainer), ambil club_name dari tabel club
     let clubName = null;
-    let roleId = null;
-    let clubId = null;
-    let userId = null;
-    let userEmail = email || '';
+    if (userData.role_id && Number(userData.role_id) === 11 && userData.club_id) {
+      try {
+        const club = await prisma.$queryRaw`
+          SELECT name
+          FROM club
+          WHERE id = ${userData.club_id}
+          LIMIT 1
+        ` as Array<{
+          name: string | null;
+        }>;
 
-    if (userData) {
-      userId = Number(userData.id);
-      userEmail = userData.email;
-      roleId = userData.role_id ? Number(userData.role_id) : null;
-      clubId = userData.club_id ? Number(userData.club_id) : null;
-
-      // Jika role_id = 11 (Personal Trainer), ambil club_name dari tabel club
-      if (roleId === 11 && clubId) {
-        try {
-          const club = await prisma.$queryRaw`
-            SELECT name
-            FROM club
-            WHERE id = ${clubId}
-            LIMIT 1
-          ` as Array<{
-            name: string | null;
-          }>;
-
-          if (club && club.length > 0 && club[0].name) {
-            clubName = club[0].name;
-            console.log('Club found:', { clubId, clubName });
-          }
-        } catch (clubError: any) {
-          console.error('Error fetching club:', clubError);
+        if (club && club.length > 0 && club[0].name) {
+          clubName = club[0].name;
+          console.log('Club found:', { clubId: userData.club_id, clubName });
+        } else {
+          console.warn('Club not found for club_id:', userData.club_id);
         }
+      } catch (clubError: any) {
+        console.error('Error fetching club:', clubError);
+        // Continue without club name - user can still login
       }
-    } else {
-      // Gunakan data dari face recognition
-      userId = candidate.member_pk || candidate.gym_member_id || null;
-      console.log('Using face recognition data only:', { name, email, userId });
     }
 
     return NextResponse.json({
       success: true,
       user: {
-        id: userId,
-        email: userEmail,
-        name: name || undefined,
-        roleId: roleId,
-        clubId: clubId,
+        id: Number(userData.id),
+        email: userData.email,
+        roleId: userData.role_id ? Number(userData.role_id) : null,
+        clubId: userData.club_id ? Number(userData.club_id) : null,
         clubName: clubName,
       },
     });
@@ -153,8 +138,6 @@ export async function POST(request: NextRequest) {
     
     if (error.message?.includes('Database')) {
       errorMessage = 'Tidak dapat terhubung ke database. Pastikan database sedang berjalan dan konfigurasi benar.';
-    } else if (error.message?.includes('fetch')) {
-      errorMessage = 'Tidak dapat terhubung ke server face recognition. Pastikan server berjalan.';
     } else {
       errorMessage = error.message || 'Terjadi kesalahan saat login';
     }
