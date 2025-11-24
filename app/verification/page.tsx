@@ -618,6 +618,43 @@ function VerificationContent() {
         });
         stopCamera();
 
+        // Update fr_checkin_logs dengan face_booking_member atau face_booking_pt = 1
+        try {
+          // Ambil memberId dari response atau dari URL params
+          const memberId = response.candidate?.gym_member_id || response.candidate?.member_pk;
+          const bookingId = nomor;
+          
+          // Ambil tanggal dari booking daystarttime atau hari ini
+          // Untuk sekarang gunakan hari ini, tapi idealnya ambil dari booking data
+          const today = new Date();
+          const dateStr = today.toISOString().split('T')[0];
+          
+          if (bookingId && person) {
+            const updateResponse = await fetch('/api/update-face-validation', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                memberName: person,
+                memberId: memberId,
+                bookingId: bookingId,
+                type: type, // 'member' or 'pt'
+                date: dateStr,
+              }),
+            });
+
+            if (!updateResponse.ok) {
+              console.error('Failed to update face validation in database');
+            } else {
+              console.log('Face validation updated in database successfully');
+            }
+          }
+        } catch (updateError) {
+          console.error('Error updating face validation:', updateError);
+          // Don't block the UI if update fails
+        }
+
         // Simpan status verifikasi ke sessionStorage untuk update di dashboard
         const verificationData = {
           nomor: nomor,

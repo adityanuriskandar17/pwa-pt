@@ -43,6 +43,8 @@ interface TableData {
   startDate?: string; // Tanggal start (hari, tanggal)
   startTime?: string; // Waktu start (HH:MM)
   endTime?: string;
+  gateDate?: string; // Tanggal gate (hari, tanggal)
+  gateTime?: string; // Waktu gate (HH:MM)
   gateVerified?: boolean; // Status verifikasi Gate
   bookingListVerified?: boolean; // Status verifikasi Booking List
   faceVerified?: boolean; // Status verifikasi Face
@@ -66,6 +68,7 @@ export default function DashboardPage() {
   const [dateInputValue, setDateInputValue] = useState<string>('');
   const datePickerRef = useRef<HTMLInputElement>(null);
   const [filterGateVerified, setFilterGateVerified] = useState<boolean | null>(null); // null = semua, true = hanya yang checklist, false = hanya yang belum
+  const [filterBookingVerified, setFilterBookingVerified] = useState<boolean | null>(null); // null = semua, true = hanya yang checklist, false = hanya yang belum
 
   // Filter data based on search query, date, and gate status
   const filteredData = tableData.filter((row) => {
@@ -99,7 +102,13 @@ export default function DashboardPage() {
       matchesGate = row.gateVerified === filterGateVerified;
     }
 
-    return matchesSearch && matchesDate && matchesGate;
+    // Filter by booking status
+    let matchesBooking = true;
+    if (filterBookingVerified !== null) {
+      matchesBooking = row.bookingListVerified === filterBookingVerified;
+    }
+
+    return matchesSearch && matchesDate && matchesGate && matchesBooking;
   });
 
   // Pagination calculations
@@ -108,10 +117,10 @@ export default function DashboardPage() {
   const endIndex = startIndex + itemsPerPage;
   const paginatedData = filteredData.slice(startIndex, endIndex);
 
-  // Reset to page 1 when search query, date filter, or gate filter changes
+  // Reset to page 1 when search query, date filter, gate filter, or booking filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedDate, filterGateVerified]);
+  }, [searchQuery, selectedDate, filterGateVerified, filterBookingVerified]);
 
   // Calculate statistics based on filtered data
   const totalMembers = tableData.length;
@@ -603,6 +612,40 @@ export default function DashboardPage() {
                   </button>
                 )}
               </div>
+              {/* Booking Filter */}
+              <div className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-md bg-white hover:bg-gray-50 transition-colors">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={filterBookingVerified === true}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setFilterBookingVerified(true);
+                      } else {
+                        setFilterBookingVerified(null);
+                      }
+                    }}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span className="text-sm font-medium text-gray-700">Booking Checked</span>
+                  </div>
+                </label>
+                {filterBookingVerified === true && (
+                  <button
+                    onClick={() => setFilterBookingVerified(null)}
+                    className="ml-1 text-gray-400 hover:text-gray-600"
+                    title="Hapus filter"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
               {/* Date Filter */}
               <div className="relative w-full sm:w-auto">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
@@ -705,10 +748,10 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-          {(searchQuery || selectedDate || filterGateVerified !== null) && (
+          {(searchQuery || selectedDate || filterGateVerified !== null || filterBookingVerified !== null) && (
             <div className="mb-4 text-sm text-gray-600">
               Menampilkan <span className="font-semibold text-gray-900">{filteredData.length}</span> dari <span className="font-semibold text-gray-900">{tableData.length}</span> hasil
-              {(selectedDate || searchQuery || filterGateVerified !== null) && (
+              {(selectedDate || searchQuery || filterGateVerified !== null || filterBookingVerified !== null) && (
                 <div className="flex flex-wrap gap-2 mt-2">
                   {selectedDate && (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-medium">
@@ -732,6 +775,14 @@ export default function DashboardPage() {
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                       </svg>
                       Gate Checked
+                    </span>
+                  )}
+                  {filterBookingVerified === true && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-medium">
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      Booking Checked
                     </span>
                   )}
                 </div>
@@ -784,6 +835,14 @@ export default function DashboardPage() {
                         <span className="text-xs">End</span>
                       </div>
                     </TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-3 px-3 min-w-[120px] hidden xl:table-cell">
+                      <div className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span className="text-xs">Gate Time</span>
+                      </div>
+                    </TableHead>
                     <TableHead className="font-semibold text-gray-700 py-3 px-3 min-w-[100px]">Status</TableHead>
                     <TableHead className="font-semibold text-gray-700 py-3 px-3 text-right w-24">Action</TableHead>
                   </TableRow>
@@ -791,7 +850,7 @@ export default function DashboardPage() {
                 <TableBody>
                   {filteredData.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-12 text-center">
+                      <TableCell colSpan={8} className="py-12 text-center">
                         <div className="flex flex-col items-center justify-center">
                           <svg className="w-12 h-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -859,6 +918,12 @@ export default function DashboardPage() {
                       </TableCell>
                       <TableCell className="py-3 px-3 hidden lg:table-cell">
                         <span className="text-xs font-medium text-gray-900">{row.endTime || '-'}</span>
+                      </TableCell>
+                      <TableCell className="py-3 px-3 hidden xl:table-cell">
+                        <div className="flex flex-col gap-0.5 min-w-[100px]">
+                          <span className="text-xs text-gray-600 truncate">{row.gateDate || '-'}</span>
+                          <span className="text-xs font-medium text-gray-900">{row.gateTime || '-'}</span>
+                        </div>
                       </TableCell>
                       <TableCell className="py-3 px-3">
                         <div className="flex flex-col gap-1">

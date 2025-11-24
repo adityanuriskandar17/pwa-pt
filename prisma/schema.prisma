@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -63,5 +62,25 @@ model ListBooking {
 
   @@index([id], map: "idx_list_booking_id")
   @@map("list_booking")
+}
+
+model FrCheckinLog {
+  id                BigInt    @id @default(autoincrement()) @map("id") @db.BigInt
+  date              DateTime  @map("date") @db.Date
+  time              DateTime  @map("time") @db.Time
+  memberId          BigInt    @map("member_id") @db.BigInt
+  name              String    @map("name") @db.VarChar(255)
+  doorid            BigInt    @map("doorid") @db.BigInt
+  status            String    @map("status") @db.VarChar(50)
+  message           String?   @map("message") @db.Text
+  deniedReason      String?   @map("denied_reason") @db.VarChar(255)
+  createdAt         DateTime  @map("created_at") @db.Timestamp(0) @default(now())
+  faceBookingMember Int      @default(0) @map("face_booking_member") @db.TinyInt
+  faceBookingPt     Int      @default(0) @map("face_booking_pt") @db.TinyInt
+
+  @@index([memberId], map: "member_id")
+  @@index([doorid], map: "doorid")
+  @@index([date], map: "date")
+  @@map("fr_checkin_logs")
 }
 

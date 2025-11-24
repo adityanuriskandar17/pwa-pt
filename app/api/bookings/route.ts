@@ -11,218 +11,298 @@ export async function GET(request: NextRequest) {
     // Allow "All Club" or empty string to fetch all clubs
     const isAllClubs = !clubName || clubName === 'All Club' || clubName === '';
 
-    // Fetch bookings dengan JOIN ke tabel member untuk mendapatkan nama member
-    // Filter berdasarkan club_name yang dipilih
+    // Fetch bookings dari log_webhook dengan JOIN ke member dan list_booking
+    // Filter berdasarkan club_name yang dipilih (dari list_booking.club_name)
     // Jika pt_name diberikan, filter juga berdasarkan resource_name (untuk Personal Trainer)
     let bookings: Array<{
       id: bigint | null;
-      member_id: bigint | null;
-      resource_name: string | null;
-      club_name: string | null;
+      doorid: bigint | null;
+      doorname: string | null;
+      memberid: bigint | null;
       member_name: string | null;
+      access: string | null;
+      membershipname: string | null;
+      timestamp_gate: Date | null;
+      booking_checkin: number | null;
+      bookingid: bigint | null;
+      fingerlogid: bigint | null;
       daystarttime: Date | null;
+      resource_name: string | null;
+      type: string | null;
+      my_booking: number | null;
+      club_name: string | null;
       endtime: Date | null;
-      day: Date | null;
     }>;
 
-    if (ptName) {
-      // Filter untuk Personal Trainer - hanya tampilkan booking dimana resource_name = ptName
-      if (isAllClubs) {
-        bookings = await prisma.$queryRaw`
-          SELECT 
-            lb.id,
-            lb.member_id,
-            lb.resource_name,
-            lb.club_name,
-            lb.daystarttime,
-            lb.endtime,
-            lb.day,
-            CASE 
-              WHEN m.first_name IS NOT NULL AND m.last_name IS NOT NULL AND m.first_name != '' AND m.last_name != ''
-                THEN CONCAT(TRIM(m.first_name), ' ', TRIM(m.last_name))
-              WHEN m.first_name IS NOT NULL AND m.first_name != ''
-                THEN TRIM(m.first_name)
-              WHEN m.last_name IS NOT NULL AND m.last_name != ''
-                THEN TRIM(m.last_name)
-              ELSE 'Unknown Member'
-            END as member_name
-          FROM list_booking lb
-          LEFT JOIN member m ON lb.member_id = m.member_id
-          WHERE (lb.is_cancelled IS NULL OR lb.is_cancelled = 0)
-            AND lb.member_id IS NOT NULL
-            AND LOWER(TRIM(lb.resource_name)) = LOWER(TRIM(${ptName}))
-          ORDER BY lb.id DESC
-          LIMIT 100
-        ` as Array<{
-          id: bigint | null;
-          member_id: bigint | null;
-          resource_name: string | null;
-          club_name: string | null;
-          member_name: string | null;
-          daystarttime: Date | null;
-          endtime: Date | null;
-          day: Date | null;
-        }>;
-      } else {
-        bookings = await prisma.$queryRaw`
-          SELECT 
-            lb.id,
-            lb.member_id,
-            lb.resource_name,
-            lb.club_name,
-            lb.daystarttime,
-            lb.endtime,
-            lb.day,
-            CASE 
-              WHEN m.first_name IS NOT NULL AND m.last_name IS NOT NULL AND m.first_name != '' AND m.last_name != ''
-                THEN CONCAT(TRIM(m.first_name), ' ', TRIM(m.last_name))
-              WHEN m.first_name IS NOT NULL AND m.first_name != ''
-                THEN TRIM(m.first_name)
-              WHEN m.last_name IS NOT NULL AND m.last_name != ''
-                THEN TRIM(m.last_name)
-              ELSE 'Unknown Member'
-            END as member_name
-          FROM list_booking lb
-          LEFT JOIN member m ON lb.member_id = m.member_id
-          WHERE (lb.is_cancelled IS NULL OR lb.is_cancelled = 0)
-            AND lb.member_id IS NOT NULL
-            AND lb.club_name = ${clubName}
-            AND LOWER(TRIM(lb.resource_name)) = LOWER(TRIM(${ptName}))
-          ORDER BY lb.id DESC
-          LIMIT 100
-        ` as Array<{
-          id: bigint | null;
-          member_id: bigint | null;
-          resource_name: string | null;
-          club_name: string | null;
-          member_name: string | null;
-          daystarttime: Date | null;
-          endtime: Date | null;
-          day: Date | null;
-        }>;
-      }
+    // Build query dengan conditional WHERE clause menggunakan Prisma template literal
+    if (ptName && !isAllClubs) {
+      // Filter untuk PT dan Club
+      bookings = await prisma.$queryRaw`
+        SELECT
+          lw.id,
+          lw.doorid,
+          lw.doorname,
+          lw.memberid,
+          COALESCE(
+            CONCAT_WS(' ', m.first_name, m.last_name),
+            lw.membername
+          ) AS member_name,
+          lw.access,
+          lw.membershipname,
+          lw.timestamp AS timestamp_gate,
+          lw.booking_checkin,
+          lw.bookingid,
+          lb.id AS fingerlogid,
+          lb.daystarttime,
+          lb.resource_name,
+          lb.type,
+          lb.my_booking,
+          lb.club_name,
+          lb.endtime
+        FROM log_webhook lw
+        LEFT JOIN member m ON lw.memberid = m.member_id
+        JOIN list_booking lb ON lw.bookingid = lb.id
+        WHERE lb.club_name = ${clubName}
+          AND LOWER(TRIM(lb.resource_name)) = LOWER(TRIM(${ptName}))
+        ORDER BY lw.timestamp DESC
+        LIMIT 100
+      ` as Array<{
+        id: bigint | null;
+        doorid: bigint | null;
+        doorname: string | null;
+        memberid: bigint | null;
+        member_name: string | null;
+        access: string | null;
+        membershipname: string | null;
+        timestamp_gate: Date | null;
+        booking_checkin: number | null;
+        bookingid: bigint | null;
+        fingerlogid: bigint | null;
+        daystarttime: Date | null;
+        resource_name: string | null;
+        type: string | null;
+        my_booking: number | null;
+        club_name: string | null;
+        endtime: Date | null;
+      }>;
+    } else if (ptName && isAllClubs) {
+      // Filter untuk PT saja (All Clubs)
+      bookings = await prisma.$queryRaw`
+        SELECT
+          lw.id,
+          lw.doorid,
+          lw.doorname,
+          lw.memberid,
+          COALESCE(
+            CONCAT_WS(' ', m.first_name, m.last_name),
+            lw.membername
+          ) AS member_name,
+          lw.access,
+          lw.membershipname,
+          lw.timestamp AS timestamp_gate,
+          lw.booking_checkin,
+          lw.bookingid,
+          lb.id AS fingerlogid,
+          lb.daystarttime,
+          lb.resource_name,
+          lb.type,
+          lb.my_booking,
+          lb.club_name,
+          lb.endtime
+        FROM log_webhook lw
+        LEFT JOIN member m ON lw.memberid = m.member_id
+        JOIN list_booking lb ON lw.bookingid = lb.id
+        WHERE LOWER(TRIM(lb.resource_name)) = LOWER(TRIM(${ptName}))
+        ORDER BY lw.timestamp DESC
+        LIMIT 100
+      ` as Array<{
+        id: bigint | null;
+        doorid: bigint | null;
+        doorname: string | null;
+        memberid: bigint | null;
+        member_name: string | null;
+        access: string | null;
+        membershipname: string | null;
+        timestamp_gate: Date | null;
+        booking_checkin: number | null;
+        bookingid: bigint | null;
+        fingerlogid: bigint | null;
+        daystarttime: Date | null;
+        resource_name: string | null;
+        type: string | null;
+        my_booking: number | null;
+        club_name: string | null;
+        endtime: Date | null;
+      }>;
+    } else if (!ptName && !isAllClubs) {
+      // Filter untuk Club saja
+      bookings = await prisma.$queryRaw`
+        SELECT
+          lw.id,
+          lw.doorid,
+          lw.doorname,
+          lw.memberid,
+          COALESCE(
+            CONCAT_WS(' ', m.first_name, m.last_name),
+            lw.membername
+          ) AS member_name,
+          lw.access,
+          lw.membershipname,
+          lw.timestamp AS timestamp_gate,
+          lw.booking_checkin,
+          lw.bookingid,
+          lb.id AS fingerlogid,
+          lb.daystarttime,
+          lb.resource_name,
+          lb.type,
+          lb.my_booking,
+          lb.club_name,
+          lb.endtime
+        FROM log_webhook lw
+        LEFT JOIN member m ON lw.memberid = m.member_id
+        JOIN list_booking lb ON lw.bookingid = lb.id
+        WHERE lb.club_name = ${clubName}
+        ORDER BY lw.timestamp DESC
+        LIMIT 100
+      ` as Array<{
+        id: bigint | null;
+        doorid: bigint | null;
+        doorname: string | null;
+        memberid: bigint | null;
+        member_name: string | null;
+        access: string | null;
+        membershipname: string | null;
+        timestamp_gate: Date | null;
+        booking_checkin: number | null;
+        bookingid: bigint | null;
+        fingerlogid: bigint | null;
+        daystarttime: Date | null;
+        resource_name: string | null;
+        type: string | null;
+        my_booking: number | null;
+        club_name: string | null;
+        endtime: Date | null;
+      }>;
     } else {
-      // Tanpa filter PT - tampilkan semua booking di club tersebut atau semua club
-      if (isAllClubs) {
-        bookings = await prisma.$queryRaw`
-          SELECT 
-            lb.id,
-            lb.member_id,
-            lb.resource_name,
-            lb.club_name,
-            lb.daystarttime,
-            lb.endtime,
-            lb.day,
-            CASE 
-              WHEN m.first_name IS NOT NULL AND m.last_name IS NOT NULL AND m.first_name != '' AND m.last_name != ''
-                THEN CONCAT(TRIM(m.first_name), ' ', TRIM(m.last_name))
-              WHEN m.first_name IS NOT NULL AND m.first_name != ''
-                THEN TRIM(m.first_name)
-              WHEN m.last_name IS NOT NULL AND m.last_name != ''
-                THEN TRIM(m.last_name)
-              ELSE 'Unknown Member'
-            END as member_name
-          FROM list_booking lb
-          LEFT JOIN member m ON lb.member_id = m.member_id
-          WHERE (lb.is_cancelled IS NULL OR lb.is_cancelled = 0)
-            AND lb.member_id IS NOT NULL
-          ORDER BY lb.id DESC
-          LIMIT 100
-        ` as Array<{
-          id: bigint | null;
-          member_id: bigint | null;
-          resource_name: string | null;
-          club_name: string | null;
-          member_name: string | null;
-          daystarttime: Date | null;
-          endtime: Date | null;
-          day: Date | null;
-        }>;
-      } else {
-        bookings = await prisma.$queryRaw`
-          SELECT 
-            lb.id,
-            lb.member_id,
-            lb.resource_name,
-            lb.club_name,
-            lb.daystarttime,
-            lb.endtime,
-            lb.day,
-            CASE 
-              WHEN m.first_name IS NOT NULL AND m.last_name IS NOT NULL AND m.first_name != '' AND m.last_name != ''
-                THEN CONCAT(TRIM(m.first_name), ' ', TRIM(m.last_name))
-              WHEN m.first_name IS NOT NULL AND m.first_name != ''
-                THEN TRIM(m.first_name)
-              WHEN m.last_name IS NOT NULL AND m.last_name != ''
-                THEN TRIM(m.last_name)
-              ELSE 'Unknown Member'
-            END as member_name
-          FROM list_booking lb
-          LEFT JOIN member m ON lb.member_id = m.member_id
-          WHERE (lb.is_cancelled IS NULL OR lb.is_cancelled = 0)
-            AND lb.member_id IS NOT NULL
-            AND lb.club_name = ${clubName}
-          ORDER BY lb.id DESC
-          LIMIT 100
-        ` as Array<{
-          id: bigint | null;
-          member_id: bigint | null;
-          resource_name: string | null;
-          club_name: string | null;
-          member_name: string | null;
-          daystarttime: Date | null;
-          endtime: Date | null;
-          day: Date | null;
-        }>;
+      // Tanpa filter (All Clubs, All PT)
+      bookings = await prisma.$queryRaw`
+        SELECT
+          lw.id,
+          lw.doorid,
+          lw.doorname,
+          lw.memberid,
+          COALESCE(
+            CONCAT_WS(' ', m.first_name, m.last_name),
+            lw.membername
+          ) AS member_name,
+          lw.access,
+          lw.membershipname,
+          lw.timestamp AS timestamp_gate,
+          lw.booking_checkin,
+          lw.bookingid,
+          lb.id AS fingerlogid,
+          lb.daystarttime,
+          lb.resource_name,
+          lb.type,
+          lb.my_booking,
+          lb.club_name,
+          lb.endtime
+        FROM log_webhook lw
+        LEFT JOIN member m ON lw.memberid = m.member_id
+        JOIN list_booking lb ON lw.bookingid = lb.id
+        ORDER BY lw.timestamp DESC
+        LIMIT 100
+      ` as Array<{
+        id: bigint | null;
+        doorid: bigint | null;
+        doorname: string | null;
+        memberid: bigint | null;
+        member_name: string | null;
+        access: string | null;
+        membershipname: string | null;
+        timestamp_gate: Date | null;
+        booking_checkin: number | null;
+        bookingid: bigint | null;
+        fingerlogid: bigint | null;
+        daystarttime: Date | null;
+        resource_name: string | null;
+        type: string | null;
+        my_booking: number | null;
+        club_name: string | null;
+        endtime: Date | null;
+      }>;
+    }
+
+    // Gate verification: checklist jika booking_checkin = 1 DAN access = 'granted'
+    // Data sudah ada di hasil query, tidak perlu query tambahan
+
+    // Query face validation status dari fr_checkin_logs
+    const faceValidationMap = new Map<string, { faceBookingMember: number; faceBookingPt: number }>();
+    
+    if (bookings.length > 0) {
+      // Prepare data untuk query face validation
+      const faceValidationData: Array<{ memberName: string; date: string; index: number }> = [];
+      bookings.forEach((booking, index) => {
+        const memberName = booking.member_name || 'Unknown Member';
+        if (booking.daystarttime && memberName && memberName !== 'Unknown Member') {
+          const bookingDate = new Date(booking.daystarttime);
+          const year = bookingDate.getFullYear();
+          const month = String(bookingDate.getMonth() + 1).padStart(2, '0');
+          const day = String(bookingDate.getDate()).padStart(2, '0');
+          const bookingDateStr = `${year}-${month}-${day}`;
+          faceValidationData.push({ memberName, date: bookingDateStr, index });
+        }
+      });
+
+      // Query face validation untuk semua booking (parallel execution)
+      if (faceValidationData.length > 0) {
+        await Promise.all(
+          faceValidationData.map(async (item) => {
+            try {
+              const faceValidation = await prisma.$queryRaw<Array<{
+                face_booking_member: number;
+                face_booking_pt: number;
+              }>>`
+                SELECT 
+                  COALESCE(MAX(face_booking_member), 0) as face_booking_member,
+                  COALESCE(MAX(face_booking_pt), 0) as face_booking_pt
+                FROM fr_checkin_logs
+                WHERE LOWER(TRIM(name)) = LOWER(TRIM(${item.memberName}))
+                  AND date = ${item.date}
+              `;
+              
+              if (faceValidation && faceValidation.length > 0) {
+                faceValidationMap.set(item.index.toString(), {
+                  faceBookingMember: Number(faceValidation[0].face_booking_member),
+                  faceBookingPt: Number(faceValidation[0].face_booking_pt),
+                });
+              }
+            } catch (error) {
+              console.error('Error checking face validation:', error);
+            }
+          })
+        );
       }
     }
 
-    // Prepare data untuk check-in verification
-    const checkinData: Array<{ memberName: string; date: string; index: number }> = [];
-    bookings.forEach((booking, index) => {
-      const memberName = booking.member_name || 'Unknown Member';
-      if (booking.daystarttime && memberName && memberName !== 'Unknown Member') {
-        const bookingDate = new Date(booking.daystarttime);
-        const year = bookingDate.getFullYear();
-        const month = String(bookingDate.getMonth() + 1).padStart(2, '0');
-        const day = String(bookingDate.getDate()).padStart(2, '0');
-        const bookingDateStr = `${year}-${month}-${day}`;
-        checkinData.push({ memberName, date: bookingDateStr, index });
-      }
-    });
-
-    // Check check-in untuk setiap booking (parallel execution untuk performa)
-    const gateVerifiedMap = new Map<number, boolean>();
-    if (checkinData.length > 0) {
-      await Promise.all(
-        checkinData.map(async (item) => {
-          try {
-            const checkinLogs = await prisma.$queryRaw<Array<{ count: bigint }>>`
-              SELECT COUNT(*) as count
-              FROM fr_checkin_logs
-              WHERE LOWER(TRIM(name)) = LOWER(TRIM(${item.memberName}))
-                AND date = ${item.date}
-                AND (status IS NULL OR status = '' OR LOWER(status) = 'success' OR status != 'failed')
-            `;
-            if (checkinLogs && checkinLogs.length > 0 && Number(checkinLogs[0].count) > 0) {
-              gateVerifiedMap.set(item.index, true);
-            }
-          } catch (error) {
-            console.error('Error checking check-in log:', error);
-            gateVerifiedMap.set(item.index, false);
-          }
-        })
-      );
+    // Debug: Log first booking untuk check timestamp_gate
+    if (bookings.length > 0) {
+      console.log('First booking timestamp_gate:', bookings[0].timestamp_gate, 'Type:', typeof bookings[0].timestamp_gate);
     }
 
     // Transform data untuk frontend
     const transformedData = bookings.map((booking, index) => {
-      // Nama member sudah diambil dari tabel member melalui JOIN
+      // Nama member sudah diambil dari query
       const memberName = booking.member_name || 'Unknown Member';
       const ptName = booking.resource_name || 'Unknown PT';
       
-      // Ambil gateVerified dari map (default: false)
-      const gateVerified = gateVerifiedMap.get(index) || false;
+      // Gate verified: checklist jika booking_checkin = 1 DAN access = 'granted'
+      const gateVerified = booking.booking_checkin === 1 && 
+                          booking.access && 
+                          booking.access.toLowerCase() === 'granted';
+      
+      // Booking verified: checklist jika booking_checkin = 1
+      const bookingListVerified = booking.booking_checkin === 1;
       
       // Default status: belum verifikasi untuk member dan PT
       // Status akan diupdate berdasarkan sessionStorage di frontend
@@ -253,22 +333,53 @@ export async function GET(request: NextRequest) {
       };
 
       const startDateTime = formatDateTime(booking.daystarttime);
+      // Handle timestamp_gate - bisa berupa Date, string, atau null
+      let gateDateTime = { date: '-', time: '-' };
+      if (booking.timestamp_gate) {
+        try {
+          // Jika timestamp_gate adalah string, convert ke Date
+          const timestampDate = booking.timestamp_gate instanceof Date 
+            ? booking.timestamp_gate 
+            : new Date(booking.timestamp_gate);
+          // Cek apakah valid date
+          if (!isNaN(timestampDate.getTime())) {
+            gateDateTime = formatDateTime(timestampDate);
+          } else {
+            console.warn('Invalid timestamp_gate date:', booking.timestamp_gate, 'for booking:', booking.bookingid);
+          }
+        } catch (error) {
+          console.error('Error formatting timestamp_gate:', error, 'Value:', booking.timestamp_gate, 'Type:', typeof booking.timestamp_gate);
+        }
+      } else {
+        // Log jika timestamp_gate null atau undefined
+        if (index === 0) { // Log hanya untuk first item untuk avoid spam
+          console.log('timestamp_gate is null/undefined for booking:', booking.bookingid);
+        }
+      }
+
+      // Get face validation status dari map
+      const faceValidation = faceValidationMap.get(index.toString());
+      const faceBookingMember = faceValidation?.faceBookingMember === 1;
+      const faceBookingPt = faceValidation?.faceBookingPt === 1;
 
       return {
         nomor: index + 1, // Nomor urut (1, 2, 3, ...)
         member: memberName,
         pt: ptName,
         status: 'Belum Validasi', // Default status
-        memberVerified: false,
-        ptVerified: false,
-        bookingId: booking.id ? Number(booking.id) : null, // ID booking untuk keperluan verifikasi
-        memberId: booking.member_id ? Number(booking.member_id) : null,
+        memberVerified: faceBookingMember, // Dari face_booking_member di fr_checkin_logs
+        ptVerified: faceBookingPt, // Dari face_booking_pt di fr_checkin_logs
+        bookingId: booking.bookingid ? Number(booking.bookingid) : null, // ID booking untuk keperluan verifikasi
+        fingerlogId: booking.fingerlogid ? Number(booking.fingerlogid) : null, // ID dari list_booking
+        memberId: booking.memberid ? Number(booking.memberid) : null,
         startDate: startDateTime.date,
         startTime: startDateTime.time,
         endTime: formatTime(booking.endtime),
-        gateVerified: gateVerified, // Sudah dicek dari fr_checkin_logs
-        bookingListVerified: false, // Default: belum terverifikasi
-        faceVerified: false, // Default: belum terverifikasi (akan diupdate berdasarkan memberVerified && ptVerified)
+        gateDate: gateDateTime.date, // Tanggal gate (hari, tanggal)
+        gateTime: gateDateTime.time, // Waktu gate (HH:MM)
+        gateVerified: gateVerified, // Checklist jika booking_checkin = 1 dan access = 'granted'
+        bookingListVerified: bookingListVerified, // Checklist jika booking_checkin = 1
+        faceVerified: faceBookingMember && faceBookingPt, // Checklist jika kedua-duanya sudah divalidasi
       };
     });
 
