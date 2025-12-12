@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/db';
+import { sql } from 'drizzle-orm';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,54 +21,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Format date ke YYYY-MM-DD
-    const dateStr = typeof date === 'string' ? date.split('T')[0] : date;
-    
-    // Update fr_checkin_logs berdasarkan member name dan date
+    // Update list_booking berdasarkan bookingId
     // Update face_booking_member jika type = 'member'
     // Update face_booking_pt jika type = 'pt'
-    // Jika memberId ada, gunakan untuk filter tambahan, jika tidak, hanya gunakan name dan date
     let result;
     if (type === 'member') {
-      if (memberId) {
-        result = await prisma.$executeRaw`
-          UPDATE fr_checkin_logs
-          SET face_booking_member = 1
-          WHERE LOWER(TRIM(name)) = LOWER(TRIM(${memberName}))
-            AND date = ${dateStr}
-            AND member_id = ${BigInt(memberId)}
-        `;
-      } else {
-        result = await prisma.$executeRaw`
-          UPDATE fr_checkin_logs
-          SET face_booking_member = 1
-          WHERE LOWER(TRIM(name)) = LOWER(TRIM(${memberName}))
-            AND date = ${dateStr}
-        `;
-      }
+      result = await db.execute(sql`
+        UPDATE list_booking
+        SET face_booking_member = 1
+        WHERE id = ${BigInt(bookingId)}
+      `);
     } else {
-      if (memberId) {
-        result = await prisma.$executeRaw`
-          UPDATE fr_checkin_logs
-          SET face_booking_pt = 1
-          WHERE LOWER(TRIM(name)) = LOWER(TRIM(${memberName}))
-            AND date = ${dateStr}
-            AND member_id = ${BigInt(memberId)}
-        `;
-      } else {
-        result = await prisma.$executeRaw`
-          UPDATE fr_checkin_logs
-          SET face_booking_pt = 1
-          WHERE LOWER(TRIM(name)) = LOWER(TRIM(${memberName}))
-            AND date = ${dateStr}
-        `;
-      }
+      result = await db.execute(sql`
+        UPDATE list_booking
+        SET face_booking_pt = 1
+        WHERE id = ${BigInt(bookingId)}
+      `);
     }
+
+    // Drizzle dengan mysql2 mengembalikan [result, metadata] untuk UPDATE
+    const updateResult = Array.isArray(result) && result.length > 0 ? result[0] : result;
+    const affectedRows = (updateResult as any)?.affectedRows || 0;
 
     return NextResponse.json({
       success: true,
       message: `Face validation ${type} updated successfully`,
-      updated: Number(result),
+      updated: affectedRows,
     });
   } catch (error: any) {
     console.error('Error updating face validation:', error);

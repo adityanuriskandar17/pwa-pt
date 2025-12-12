@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -60,6 +59,8 @@ model ListBooking {
   memberId          BigInt?   @map("member_id") @db.BigInt
   showName          String?   @map("show_name") @db.Text
   myBooking         Int?      @map("my_booking") @db.Int
+  faceBookingMember Int?      @default(0) @map("face_booking_member") @db.Int
+  faceBookingPt     Int?      @default(0) @map("face_booking_pt") @db.Int
 
   @@index([id], map: "idx_list_booking_id")
   @@map("list_booking")
@@ -76,8 +77,7 @@ model FrCheckinLog {
   message           String?   @map("message") @db.Text
   deniedReason      String?   @map("denied_reason") @db.VarChar(255)
   createdAt         DateTime  @map("created_at") @db.Timestamp(0) @default(now())
-  faceBookingMember Int      @default(0) @map("face_booking_member") @db.TinyInt
-  faceBookingPt     Int      @default(0) @map("face_booking_pt") @db.TinyInt
+  // face_booking_member dan face_booking_pt sudah dipindahkan ke list_booking
 
   @@index([memberId], map: "member_id")
   @@index([doorid], map: "doorid")

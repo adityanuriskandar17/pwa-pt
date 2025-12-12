@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/db';
+import { sql } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export async function POST(request: NextRequest) {
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
     
     try {
       // Use LOWER() for case-insensitive email comparison
-      user = await prisma.$queryRaw`
+      const result = await db.execute(sql`
         SELECT 
           id,
           email,
@@ -35,7 +36,11 @@ export async function POST(request: NextRequest) {
         FROM user
         WHERE LOWER(email) = LOWER(${email})
         LIMIT 1
-      ` as Array<{
+      `);
+      
+      // Drizzle dengan mysql2 mengembalikan [rows, metadata]
+      const rows = Array.isArray(result) && result.length > 0 ? result[0] : [];
+      user = rows as Array<{
         id: bigint;
         email: string;
         password: string;
@@ -100,14 +105,14 @@ export async function POST(request: NextRequest) {
     let clubName = null;
     if (userData.role_id && Number(userData.role_id) === 11 && userData.club_id) {
       try {
-        const club = await prisma.$queryRaw`
+        const clubResult = await db.execute(sql`
           SELECT name
           FROM club
           WHERE id = ${userData.club_id}
           LIMIT 1
-        ` as Array<{
-          name: string | null;
-        }>;
+        `);
+        // Drizzle dengan mysql2 mengembalikan [rows, metadata]
+        const club = Array.isArray(clubResult) && clubResult.length > 0 ? clubResult[0] : [];
 
         if (club && club.length > 0 && club[0].name) {
           clubName = club[0].name;

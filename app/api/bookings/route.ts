@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/db';
+import { sql } from 'drizzle-orm';
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,13 +32,16 @@ export async function GET(request: NextRequest) {
       type: string | null;
       my_booking: number | null;
       club_name: string | null;
-      endtime: Date | null;
+      endtime: Date | string | null; // TIME type bisa berupa string "HH:MM:SS" atau Date
+      face_booking_member: number | null;
+      face_booking_pt: number | null;
     }>;
 
-    // Build query dengan conditional WHERE clause menggunakan Prisma template literal
+    // Build query dengan conditional WHERE clause menggunakan Drizzle SQL
+    // Menggunakan subquery untuk menghindari duplikasi - ambil hanya record terbaru per bookingid
     if (ptName && !isAllClubs) {
       // Filter untuk PT dan Club
-      bookings = await prisma.$queryRaw`
+      const result1 = await db.execute(sql`
         SELECT
           lw.id,
           lw.doorid,
@@ -58,36 +62,31 @@ export async function GET(request: NextRequest) {
           lb.type,
           lb.my_booking,
           lb.club_name,
-          lb.endtime
-        FROM log_webhook lw
+          lb.endtime,
+          COALESCE(lb.face_booking_member, 0) AS face_booking_member,
+          COALESCE(lb.face_booking_pt, 0) AS face_booking_pt
+        FROM (
+          SELECT lw1.*
+          FROM log_webhook lw1
+          INNER JOIN (
+            SELECT bookingid, MAX(timestamp) as max_timestamp
+            FROM log_webhook
+            GROUP BY bookingid
+          ) lw2 ON lw1.bookingid = lw2.bookingid AND lw1.timestamp = lw2.max_timestamp
+        ) lw
         LEFT JOIN member m ON lw.memberid = m.member_id
         JOIN list_booking lb ON lw.bookingid = lb.id
         WHERE lb.club_name = ${clubName}
           AND LOWER(TRIM(lb.resource_name)) = LOWER(TRIM(${ptName}))
         ORDER BY lw.timestamp DESC
         LIMIT 100
-      ` as Array<{
-        id: bigint | null;
-        doorid: bigint | null;
-        doorname: string | null;
-        memberid: bigint | null;
-        member_name: string | null;
-        access: string | null;
-        membershipname: string | null;
-        timestamp_gate: Date | null;
-        booking_checkin: number | null;
-        bookingid: bigint | null;
-        fingerlogid: bigint | null;
-        daystarttime: Date | null;
-        resource_name: string | null;
-        type: string | null;
-        my_booking: number | null;
-        club_name: string | null;
-        endtime: Date | null;
-      }>;
+      `);
+      // Drizzle dengan mysql2 mengembalikan [rows, metadata]
+      const rows1 = Array.isArray(result1) && result1.length > 0 ? result1[0] : [];
+      bookings = Array.isArray(rows1) ? rows1 : [];
     } else if (ptName && isAllClubs) {
       // Filter untuk PT saja (All Clubs)
-      bookings = await prisma.$queryRaw`
+      const result2 = await db.execute(sql`
         SELECT
           lw.id,
           lw.doorid,
@@ -108,35 +107,30 @@ export async function GET(request: NextRequest) {
           lb.type,
           lb.my_booking,
           lb.club_name,
-          lb.endtime
-        FROM log_webhook lw
+          lb.endtime,
+          COALESCE(lb.face_booking_member, 0) AS face_booking_member,
+          COALESCE(lb.face_booking_pt, 0) AS face_booking_pt
+        FROM (
+          SELECT lw1.*
+          FROM log_webhook lw1
+          INNER JOIN (
+            SELECT bookingid, MAX(timestamp) as max_timestamp
+            FROM log_webhook
+            GROUP BY bookingid
+          ) lw2 ON lw1.bookingid = lw2.bookingid AND lw1.timestamp = lw2.max_timestamp
+        ) lw
         LEFT JOIN member m ON lw.memberid = m.member_id
         JOIN list_booking lb ON lw.bookingid = lb.id
         WHERE LOWER(TRIM(lb.resource_name)) = LOWER(TRIM(${ptName}))
         ORDER BY lw.timestamp DESC
         LIMIT 100
-      ` as Array<{
-        id: bigint | null;
-        doorid: bigint | null;
-        doorname: string | null;
-        memberid: bigint | null;
-        member_name: string | null;
-        access: string | null;
-        membershipname: string | null;
-        timestamp_gate: Date | null;
-        booking_checkin: number | null;
-        bookingid: bigint | null;
-        fingerlogid: bigint | null;
-        daystarttime: Date | null;
-        resource_name: string | null;
-        type: string | null;
-        my_booking: number | null;
-        club_name: string | null;
-        endtime: Date | null;
-      }>;
+      `);
+      // Drizzle dengan mysql2 mengembalikan [rows, metadata]
+      const rows2 = Array.isArray(result2) && result2.length > 0 ? result2[0] : [];
+      bookings = Array.isArray(rows2) ? rows2 : [];
     } else if (!ptName && !isAllClubs) {
       // Filter untuk Club saja
-      bookings = await prisma.$queryRaw`
+      const result3 = await db.execute(sql`
         SELECT
           lw.id,
           lw.doorid,
@@ -157,35 +151,30 @@ export async function GET(request: NextRequest) {
           lb.type,
           lb.my_booking,
           lb.club_name,
-          lb.endtime
-        FROM log_webhook lw
+          lb.endtime,
+          COALESCE(lb.face_booking_member, 0) AS face_booking_member,
+          COALESCE(lb.face_booking_pt, 0) AS face_booking_pt
+        FROM (
+          SELECT lw1.*
+          FROM log_webhook lw1
+          INNER JOIN (
+            SELECT bookingid, MAX(timestamp) as max_timestamp
+            FROM log_webhook
+            GROUP BY bookingid
+          ) lw2 ON lw1.bookingid = lw2.bookingid AND lw1.timestamp = lw2.max_timestamp
+        ) lw
         LEFT JOIN member m ON lw.memberid = m.member_id
         JOIN list_booking lb ON lw.bookingid = lb.id
         WHERE lb.club_name = ${clubName}
         ORDER BY lw.timestamp DESC
         LIMIT 100
-      ` as Array<{
-        id: bigint | null;
-        doorid: bigint | null;
-        doorname: string | null;
-        memberid: bigint | null;
-        member_name: string | null;
-        access: string | null;
-        membershipname: string | null;
-        timestamp_gate: Date | null;
-        booking_checkin: number | null;
-        bookingid: bigint | null;
-        fingerlogid: bigint | null;
-        daystarttime: Date | null;
-        resource_name: string | null;
-        type: string | null;
-        my_booking: number | null;
-        club_name: string | null;
-        endtime: Date | null;
-      }>;
+      `);
+      // Drizzle dengan mysql2 mengembalikan [rows, metadata]
+      const rows3 = Array.isArray(result3) && result3.length > 0 ? result3[0] : [];
+      bookings = Array.isArray(rows3) ? rows3 : [];
     } else {
       // Tanpa filter (All Clubs, All PT)
-      bookings = await prisma.$queryRaw`
+      const result4 = await db.execute(sql`
         SELECT
           lw.id,
           lw.doorid,
@@ -206,92 +195,39 @@ export async function GET(request: NextRequest) {
           lb.type,
           lb.my_booking,
           lb.club_name,
-          lb.endtime
-        FROM log_webhook lw
+          lb.endtime,
+          COALESCE(lb.face_booking_member, 0) AS face_booking_member,
+          COALESCE(lb.face_booking_pt, 0) AS face_booking_pt
+        FROM (
+          SELECT lw1.*
+          FROM log_webhook lw1
+          INNER JOIN (
+            SELECT bookingid, MAX(timestamp) as max_timestamp
+            FROM log_webhook
+            GROUP BY bookingid
+          ) lw2 ON lw1.bookingid = lw2.bookingid AND lw1.timestamp = lw2.max_timestamp
+        ) lw
         LEFT JOIN member m ON lw.memberid = m.member_id
         JOIN list_booking lb ON lw.bookingid = lb.id
         ORDER BY lw.timestamp DESC
         LIMIT 100
-      ` as Array<{
-        id: bigint | null;
-        doorid: bigint | null;
-        doorname: string | null;
-        memberid: bigint | null;
-        member_name: string | null;
-        access: string | null;
-        membershipname: string | null;
-        timestamp_gate: Date | null;
-        booking_checkin: number | null;
-        bookingid: bigint | null;
-        fingerlogid: bigint | null;
-        daystarttime: Date | null;
-        resource_name: string | null;
-        type: string | null;
-        my_booking: number | null;
-        club_name: string | null;
-        endtime: Date | null;
-      }>;
+      `);
+      // Drizzle dengan mysql2 mengembalikan [rows, metadata]
+      const rows4 = Array.isArray(result4) && result4.length > 0 ? result4[0] : [];
+      bookings = Array.isArray(rows4) ? rows4 : [];
     }
 
     // Gate verification: checklist jika booking_checkin = 1 DAN access = 'granted'
     // Data sudah ada di hasil query, tidak perlu query tambahan
-
-    // Query face validation status dari fr_checkin_logs
-    const faceValidationMap = new Map<string, { faceBookingMember: number; faceBookingPt: number }>();
-    
-    if (bookings.length > 0) {
-      // Prepare data untuk query face validation
-      const faceValidationData: Array<{ memberName: string; date: string; index: number }> = [];
-      bookings.forEach((booking, index) => {
-        const memberName = booking.member_name || 'Unknown Member';
-        if (booking.daystarttime && memberName && memberName !== 'Unknown Member') {
-          const bookingDate = new Date(booking.daystarttime);
-          const year = bookingDate.getFullYear();
-          const month = String(bookingDate.getMonth() + 1).padStart(2, '0');
-          const day = String(bookingDate.getDate()).padStart(2, '0');
-          const bookingDateStr = `${year}-${month}-${day}`;
-          faceValidationData.push({ memberName, date: bookingDateStr, index });
-        }
-      });
-
-      // Query face validation untuk semua booking (parallel execution)
-      if (faceValidationData.length > 0) {
-        await Promise.all(
-          faceValidationData.map(async (item) => {
-            try {
-              const faceValidation = await prisma.$queryRaw<Array<{
-                face_booking_member: number;
-                face_booking_pt: number;
-              }>>`
-                SELECT 
-                  COALESCE(MAX(face_booking_member), 0) as face_booking_member,
-                  COALESCE(MAX(face_booking_pt), 0) as face_booking_pt
-                FROM fr_checkin_logs
-                WHERE LOWER(TRIM(name)) = LOWER(TRIM(${item.memberName}))
-                  AND date = ${item.date}
-              `;
-              
-              if (faceValidation && faceValidation.length > 0) {
-                faceValidationMap.set(item.index.toString(), {
-                  faceBookingMember: Number(faceValidation[0].face_booking_member),
-                  faceBookingPt: Number(faceValidation[0].face_booking_pt),
-                });
-              }
-            } catch (error) {
-              console.error('Error checking face validation:', error);
-            }
-          })
-        );
-      }
-    }
+    // Face validation sekarang langsung dari list_booking (face_booking_member dan face_booking_pt)
 
     // Debug: Log first booking untuk check timestamp_gate
-    if (bookings.length > 0) {
+    if (Array.isArray(bookings) && bookings.length > 0) {
       console.log('First booking timestamp_gate:', bookings[0].timestamp_gate, 'Type:', typeof bookings[0].timestamp_gate);
     }
 
     // Transform data untuk frontend
-    const transformedData = bookings.map((booking, index) => {
+    const transformedData = (Array.isArray(bookings) ? bookings : []).map((booking: any, index: number) => {
       // Nama member sudah diambil dari query
       const memberName = booking.member_name || 'Unknown Member';
       const ptName = booking.resource_name || 'Unknown PT';
@@ -324,12 +260,35 @@ export async function GET(request: NextRequest) {
       };
 
       // Format waktu untuk endtime (hanya waktu)
-      const formatTime = (time: Date | null): string => {
+      // endtime adalah TIME type di MySQL yang dikembalikan sebagai string "HH:MM:SS"
+      const formatTime = (time: Date | string | null): string => {
         if (!time) return '-';
-        const date = new Date(time);
-        const hours = date.getHours().toString().padStart(2, '0');
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        return `${hours}:${minutes}`;
+        
+        // Jika sudah string (format TIME dari MySQL: "HH:MM:SS" atau "HH:MM")
+        if (typeof time === 'string') {
+          // Ambil hanya jam dan menit (HH:MM)
+          const timeParts = time.split(':');
+          if (timeParts.length >= 2) {
+            const hours = timeParts[0].padStart(2, '0');
+            const minutes = timeParts[1].padStart(2, '0');
+            return `${hours}:${minutes}`;
+          }
+          return time; // Return as is jika format tidak dikenali
+        }
+        
+        // Jika Date object
+        try {
+          const date = new Date(time);
+          if (isNaN(date.getTime())) {
+            return '-';
+          }
+          const hours = date.getHours().toString().padStart(2, '0');
+          const minutes = date.getMinutes().toString().padStart(2, '0');
+          return `${hours}:${minutes}`;
+        } catch (error) {
+          console.warn('Error formatting time:', time, error);
+          return '-';
+        }
       };
 
       const startDateTime = formatDateTime(booking.daystarttime);
@@ -357,10 +316,9 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Get face validation status dari map
-      const faceValidation = faceValidationMap.get(index.toString());
-      const faceBookingMember = faceValidation?.faceBookingMember === 1;
-      const faceBookingPt = faceValidation?.faceBookingPt === 1;
+      // Get face validation status langsung dari list_booking
+      const faceBookingMember = booking.face_booking_member === 1;
+      const faceBookingPt = booking.face_booking_pt === 1;
 
       return {
         nomor: index + 1, // Nomor urut (1, 2, 3, ...)
