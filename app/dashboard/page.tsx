@@ -172,26 +172,54 @@ export default function DashboardPage() {
     fetchClubs();
   }, [router]);
 
+  // Ref untuk menyimpan fetchData function agar bisa dipanggil dari luar
+  const fetchDataRef = useRef<((forceRefresh?: boolean) => Promise<void>) | null>(null);
+
   // Fetch data ketika selectedClub berubah
   useEffect(() => {
     if (!selectedClub || !user) return;
 
-    const fetchData = async () => {
+    const fetchData = async (forceRefresh = false) => {
+      let isLoading = false;
+      
       try {
-        setLoading(true);
-        setLoadingStage('waiting');
+        const clubParam = selectedClub === 'All Club' ? 'All Club' : selectedClub;
+        
         // Fetch data dari API dengan club_name
         // Jika role_id = 11 (Personal Trainer), tambahkan filter pt_name
         // Jika "All Club" dipilih, kirim "All Club" sebagai club_name
-        const clubParam = selectedClub === 'All Club' ? 'All Club' : selectedClub;
         let apiUrl = `/api/bookings?club_name=${encodeURIComponent(clubParam)}`;
         if (user.roleId === 11 && user.name) {
           // Personal Trainer: filter berdasarkan nama mereka sendiri
           apiUrl += `&pt_name=${encodeURIComponent(user.name)}`;
         }
         
-        const response = await fetch(apiUrl);
+        // Tambahkan force_refresh parameter jika diperlukan
+        if (forceRefresh) {
+          apiUrl += `&force_refresh=true`;
+        }
+        
+        // Tampilkan loading hanya jika tidak menggunakan cache dari response
+        isLoading = true;
+        setLoading(true);
+        setLoadingStage('waiting');
+        
+        // Gunakan Next.js fetch cache dengan revalidate
+        // Cache akan di-invalidate otomatis oleh Redis di server-side
+        const response = await fetch(apiUrl, {
+          next: { 
+            revalidate: 60, // Revalidate setiap 60 detik (fallback jika Redis tidak ada)
+            tags: ['bookings'] // Tag untuk manual revalidation jika diperlukan
+          }
+        });
         const result = await response.json();
+        
+        // Jika data dari cache, langsung tampilkan tanpa loading animation
+        if (result.cached) {
+          setLoading(false);
+          setLoadingStage('waiting');
+          isLoading = false;
+        }
         
         if (!response.ok || !result.success) {
           throw new Error(result.error || 'Failed to fetch bookings');
@@ -253,12 +281,12 @@ export default function DashboardPage() {
 
         setTableData(initialData);
         
-        // Update loading stage
-        setLoadingStage('almost');
-        await new Promise(resolve => setTimeout(resolve, 300)); // Delay untuk smooth transition
-        
-        setLoadingStage('success');
-        await new Promise(resolve => setTimeout(resolve, 500)); // Tampilkan success sebentar
+        // Update loading stage - skip animasi untuk performa lebih cepat
+        if (isLoading) {
+          // Langsung ke success dengan delay minimal
+          setLoadingStage('success');
+          await new Promise(resolve => setTimeout(resolve, 150)); // Delay minimal
+        }
         
       } catch (error: any) {
         console.error('Error fetching data:', error);
@@ -266,13 +294,33 @@ export default function DashboardPage() {
         setTableData([]);
         setLoadingStage('waiting');
       } finally {
-        setLoading(false);
-        setLoadingStage('waiting');
+        if (isLoading) {
+          setLoading(false);
+          setLoadingStage('waiting');
+        }
       }
     };
 
+    // Simpan fetchData ke ref
+    fetchDataRef.current = fetchData;
+    
     fetchData();
+    
+    // Auto-refresh setiap 5 menit untuk mendapatkan data terbaru
+    // Redis cache TTL adalah 5 menit, jadi refresh setiap 5 menit sudah cukup
+    const autoRefreshInterval = setInterval(() => {
+      fetchData(true); // Force refresh
+    }, 300000); // 5 menit (sesuai dengan Redis TTL)
+    
+    return () => clearInterval(autoRefreshInterval);
   }, [selectedClub, user]);
+  
+  // Fungsi untuk refresh manual
+  const handleRefresh = () => {
+    if (fetchDataRef.current) {
+      fetchDataRef.current(true); // Force refresh
+    }
+  };
 
   // Fetch server time and update periodically
   useEffect(() => {
@@ -394,6 +442,7 @@ export default function DashboardPage() {
   }, [selectedDate]);
 
   const handleLogout = () => {
+    // Clear sessionStorage saat logout (Redis cache akan expire otomatis)
     sessionStorage.removeItem('user');
     router.push('/login');
   };
@@ -517,6 +566,19 @@ export default function DashboardPage() {
                 <div className="text-xs text-gray-500 mb-0.5">{formatDate(serverTime)}</div>
                 <div className="text-lg font-mono font-semibold text-gray-900">{formatTime(serverTime)}</div>
               </div>
+              
+              {/* Refresh Button */}
+              <Button
+                onClick={handleRefresh}
+                variant="outline"
+                size="sm"
+                className="border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+                title="Refresh data"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </Button>
               
               {/* Club Selector untuk role_id = 1 atau 4 */}
               {(user.roleId === 1 || user.roleId === 4) && clubs.length > 0 && (

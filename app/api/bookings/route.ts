@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { sql } from 'drizzle-orm';
+import { getCache, setCache } from '@/lib/redis';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,9 +9,26 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const clubName = searchParams.get('club_name');
     const ptName = searchParams.get('pt_name'); // Nama Personal Trainer untuk filter (jika role_id = 11)
+    const forceRefresh = searchParams.get('force_refresh') === 'true';
 
     // Allow "All Club" or empty string to fetch all clubs
     const isAllClubs = !clubName || clubName === 'All Club' || clubName === '';
+
+    // Generate cache key berdasarkan parameter
+    const cacheKey = `bookings:${clubName || 'all'}:${ptName || 'all'}`;
+    
+    // Cek Redis cache terlebih dahulu (kecuali force refresh)
+    if (!forceRefresh) {
+      const cachedData = await getCache(cacheKey);
+      if (cachedData) {
+        console.log('Using Redis cache for:', cacheKey);
+        return NextResponse.json({
+          success: true,
+          data: cachedData,
+          cached: true,
+        });
+      }
+    }
 
     // Fetch bookings dari log_webhook dengan JOIN ke member dan list_booking
     // Filter berdasarkan club_name yang dipilih (dari list_booking.club_name)
@@ -66,7 +84,17 @@ export async function GET(request: NextRequest) {
           COALESCE(lb.face_booking_member, 0) AS face_booking_member,
           COALESCE(lb.face_booking_pt, 0) AS face_booking_pt
         FROM (
-          SELECT lw1.*
+          SELECT 
+            lw1.id,
+            lw1.doorid,
+            lw1.doorname,
+            lw1.memberid,
+            lw1.membername,
+            lw1.access,
+            lw1.membershipname,
+            lw1.timestamp,
+            lw1.booking_checkin,
+            lw1.bookingid
           FROM log_webhook lw1
           INNER JOIN (
             SELECT bookingid, MAX(timestamp) as max_timestamp, MAX(id) as max_id
@@ -121,7 +149,17 @@ export async function GET(request: NextRequest) {
           COALESCE(lb.face_booking_member, 0) AS face_booking_member,
           COALESCE(lb.face_booking_pt, 0) AS face_booking_pt
         FROM (
-          SELECT lw1.*
+          SELECT 
+            lw1.id,
+            lw1.doorid,
+            lw1.doorname,
+            lw1.memberid,
+            lw1.membername,
+            lw1.access,
+            lw1.membershipname,
+            lw1.timestamp,
+            lw1.booking_checkin,
+            lw1.bookingid
           FROM log_webhook lw1
           INNER JOIN (
             SELECT bookingid, MAX(timestamp) as max_timestamp, MAX(id) as max_id
@@ -175,7 +213,17 @@ export async function GET(request: NextRequest) {
           COALESCE(lb.face_booking_member, 0) AS face_booking_member,
           COALESCE(lb.face_booking_pt, 0) AS face_booking_pt
         FROM (
-          SELECT lw1.*
+          SELECT 
+            lw1.id,
+            lw1.doorid,
+            lw1.doorname,
+            lw1.memberid,
+            lw1.membername,
+            lw1.access,
+            lw1.membershipname,
+            lw1.timestamp,
+            lw1.booking_checkin,
+            lw1.bookingid
           FROM log_webhook lw1
           INNER JOIN (
             SELECT bookingid, MAX(timestamp) as max_timestamp, MAX(id) as max_id
@@ -229,7 +277,17 @@ export async function GET(request: NextRequest) {
           COALESCE(lb.face_booking_member, 0) AS face_booking_member,
           COALESCE(lb.face_booking_pt, 0) AS face_booking_pt
         FROM (
-          SELECT lw1.*
+          SELECT 
+            lw1.id,
+            lw1.doorid,
+            lw1.doorname,
+            lw1.memberid,
+            lw1.membername,
+            lw1.access,
+            lw1.membershipname,
+            lw1.timestamp,
+            lw1.booking_checkin,
+            lw1.bookingid
           FROM log_webhook lw1
           INNER JOIN (
             SELECT bookingid, MAX(timestamp) as max_timestamp, MAX(id) as max_id
@@ -381,9 +439,13 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Simpan ke Redis cache dengan TTL 5 menit (300 detik)
+    await setCache(cacheKey, transformedData, 300);
+
     return NextResponse.json({
       success: true,
       data: transformedData,
+      cached: false,
     });
   } catch (error: any) {
     console.error('Error fetching bookings:', error);

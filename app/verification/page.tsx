@@ -693,6 +693,8 @@ function VerificationContent() {
           timestamp: Date.now(),
         };
         sessionStorage.setItem('lastVerification', JSON.stringify(verificationData));
+        
+        // Cache akan di-invalidate otomatis oleh API update-face-validation
       } else if (response.ok && !response.matched) {
         // ⚠️ Wajah terdeteksi tapi tidak cocok atau tidak terdaftar
         setVerificationResult({

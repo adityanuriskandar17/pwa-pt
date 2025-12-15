@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { sql } from 'drizzle-orm';
+import { deleteCachePattern } from '@/lib/redis';
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,6 +43,9 @@ export async function POST(request: NextRequest) {
     // Drizzle dengan mysql2 mengembalikan [result, metadata] untuk UPDATE
     const updateResult = Array.isArray(result) && result.length > 0 ? result[0] : result;
     const affectedRows = (updateResult as any)?.affectedRows || 0;
+
+    // Invalidate semua cache bookings karena data sudah berubah
+    await deleteCachePattern('bookings:*');
 
     return NextResponse.json({
       success: true,
