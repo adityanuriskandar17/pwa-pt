@@ -2,14 +2,58 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { sql } from 'drizzle-orm';
 import { getCache, setCache } from '@/lib/redis';
+import { apiRateLimit } from '@/lib/rate-limit';
+import { validateClubName, validatePTName, sanitizeString } from '@/lib/validation';
 
 export async function GET(request: NextRequest) {
   try {
+    // Rate limiting
+    const rateLimitResult = await apiRateLimit(request);
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        { error: 'Terlalu banyak request. Silakan coba lagi nanti.' },
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': Math.ceil((rateLimitResult.resetTime - Date.now()) / 1000).toString(),
+          }
+        }
+      );
+    }
+
     // Get club_name and pt_name from query parameters
     const { searchParams } = new URL(request.url);
-    const clubName = searchParams.get('club_name');
-    const ptName = searchParams.get('pt_name'); // Nama Personal Trainer untuk filter (jika role_id = 11)
+    const clubNameRaw = searchParams.get('club_name');
+    const ptNameRaw = searchParams.get('pt_name'); // Nama Personal Trainer untuk filter (jika role_id = 11)
     const forceRefresh = searchParams.get('force_refresh') === 'true';
+
+    // Validate and sanitize inputs
+    let clubName: string | null = null;
+    let ptName: string | null = null;
+
+    if (clubNameRaw) {
+      const sanitized = sanitizeString(clubNameRaw, 255);
+      if (validateClubName(sanitized) || sanitized === 'All Club') {
+        clubName = sanitized;
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid club name' },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (ptNameRaw) {
+      const sanitized = sanitizeString(ptNameRaw, 255);
+      if (validatePTName(sanitized)) {
+        ptName = sanitized;
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid PT name' },
+          { status: 400 }
+        );
+      }
+    }
 
     // Allow "All Club" or empty string to fetch all clubs
     const isAllClubs = !clubName || clubName === 'All Club' || clubName === '';

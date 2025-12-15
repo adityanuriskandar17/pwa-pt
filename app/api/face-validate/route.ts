@@ -1,13 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiRateLimit } from '@/lib/rate-limit';
+import { validateBase64Image, validateBodySize } from '@/lib/validation';
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting
+    const rateLimitResult = await apiRateLimit(request);
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        { error: 'Terlalu banyak request. Silakan coba lagi nanti.' },
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': Math.ceil((rateLimitResult.resetTime - Date.now()) / 1000).toString(),
+          }
+        }
+      );
+    }
+
+    // Validate request body size (image bisa besar, tapi limit 10MB)
+    const bodySizeCheck = validateBodySize(await request.clone().json(), 10240); // Max 10MB
+    if (!bodySizeCheck.valid) {
+      return NextResponse.json(
+        { error: bodySizeCheck.error || 'Request terlalu besar' },
+        { status: 413 }
+      );
+    }
+
     const body = await request.json();
     const { image_b64 } = body;
 
     if (!image_b64) {
       return NextResponse.json(
         { error: 'image_b64 is required' },
+        { status: 400 }
+      );
+    }
+
+    // Validate base64 image
+    const imageValidation = validateBase64Image(image_b64, 5); // Max 5MB
+    if (!imageValidation.valid) {
+      return NextResponse.json(
+        { error: imageValidation.error || 'Invalid image' },
         { status: 400 }
       );
     }
@@ -39,9 +73,10 @@ export async function POST(request: NextRequest) {
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error: any) {
-    console.error('Face validation error:', error);
+    // Jangan expose error details untuk security
+    console.error('Face validation error:', error.message || 'Unknown error');
     return NextResponse.json(
-      { error: error.message || 'Failed to connect to face recognition server' },
+      { error: 'Terjadi kesalahan saat validasi wajah. Silakan coba lagi.' },
       { status: 500 }
     );
   }
