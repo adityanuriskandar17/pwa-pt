@@ -83,15 +83,26 @@ export function validateBase64Image(base64: string, maxSizeMB: number = 5): { va
     return { valid: false, error: 'Invalid base64 string' };
   }
   
-  // Check format
-  if (!base64.startsWith('data:image/')) {
-    return { valid: false, error: 'Invalid image format' };
+  // Extract base64 data - handle both formats:
+  // 1. With prefix: "data:image/jpeg;base64,/9j/4AAQ..."
+  // 2. Without prefix: "/9j/4AAQ..." (raw base64)
+  let base64Data: string;
+  
+  if (base64.startsWith('data:image/')) {
+    // Format dengan prefix
+    const parts = base64.split(',');
+    if (parts.length < 2 || !parts[1]) {
+      return { valid: false, error: 'Invalid base64 data' };
+    }
+    base64Data = parts[1];
+  } else {
+    // Format tanpa prefix (raw base64) - ini yang dikirim dari verification page
+    base64Data = base64;
   }
   
-  // Extract base64 data
-  const base64Data = base64.split(',')[1];
-  if (!base64Data) {
-    return { valid: false, error: 'Invalid base64 data' };
+  // Basic validation - check if it looks like valid base64
+  if (base64Data.length < 100) {
+    return { valid: false, error: 'Image data too short' };
   }
   
   // Check size (approximate)

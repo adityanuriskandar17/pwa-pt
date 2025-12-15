@@ -41,7 +41,7 @@ export function middleware(request: NextRequest) {
   return response;
 }
 
-// Apply middleware ke semua routes kecuali static files
+// Apply middleware ke semua routes kecuali static files dan API
 export const config = {
   matcher: [
     /*
@@ -50,8 +50,9 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - verification (allow camera and TensorFlow.js)
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 };
 

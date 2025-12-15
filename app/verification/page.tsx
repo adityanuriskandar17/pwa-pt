@@ -111,7 +111,7 @@ function VerificationContent() {
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
     
-    return canvas.toDataURL('image/jpeg', 0.8).split(',')[1]; // Remove data:image/jpeg;base64, prefix
+    return canvas.toDataURL('image/jpeg', 0.8); // Kirim dengan prefix data:image/jpeg;base64,
   };
 
   // Validate face dengan API melalui Next.js API route (proxy)
