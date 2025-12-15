@@ -104,3 +104,5 @@ redis-cli keys "bookings:*"
 - Pastikan Redis running dan accessible
 - Cek network latency ke Redis server
 - Pastikan Redis memiliki cukup memory
+
+

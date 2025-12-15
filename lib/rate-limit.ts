@@ -111,3 +111,5 @@ export async function apiRateLimit(request: NextRequest) {
     keyGenerator: (req) => `api:${ip}`,
   });
 }
+
+

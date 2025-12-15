@@ -198,3 +198,5 @@ Sebelum deploy ke production, pastikan:
 - [OWASP Top 10](https://owasp.org/www-project-top-ten/)
 - [Next.js Security Best Practices](https://nextjs.org/docs/app/building-your-application/configuring/security-headers)
 - [Node.js Security Best Practices](https://nodejs.org/en/docs/guides/security/)
+
+
