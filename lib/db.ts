@@ -20,3 +20,5 @@ export const db = drizzle(connection, { schema, mode: 'default' });
 
 // Export schema for use in queries
 export { schema };
+
+

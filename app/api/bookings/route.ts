@@ -69,10 +69,12 @@ export async function GET(request: NextRequest) {
           SELECT lw1.*
           FROM log_webhook lw1
           INNER JOIN (
-            SELECT bookingid, MAX(timestamp) as max_timestamp
+            SELECT bookingid, MAX(timestamp) as max_timestamp, MAX(id) as max_id
             FROM log_webhook
             GROUP BY bookingid
-          ) lw2 ON lw1.bookingid = lw2.bookingid AND lw1.timestamp = lw2.max_timestamp
+          ) lw2 ON lw1.bookingid = lw2.bookingid 
+            AND lw1.timestamp = lw2.max_timestamp
+            AND lw1.id = lw2.max_id
         ) lw
         LEFT JOIN member m ON lw.memberid = m.member_id
         JOIN list_booking lb ON lw.bookingid = lb.id
@@ -83,7 +85,15 @@ export async function GET(request: NextRequest) {
       `);
       // Drizzle dengan mysql2 mengembalikan [rows, metadata]
       const rows1 = Array.isArray(result1) && result1.length > 0 ? result1[0] : [];
-      bookings = Array.isArray(rows1) ? rows1 : [];
+      // Deduplikasi berdasarkan bookingid - ambil hanya 1 record per bookingid
+      const uniqueBookings1 = new Map();
+      (Array.isArray(rows1) ? rows1 : []).forEach((booking: any) => {
+        const bookingId = booking.bookingid || booking.fingerlogid;
+        if (bookingId && !uniqueBookings1.has(bookingId)) {
+          uniqueBookings1.set(bookingId, booking);
+        }
+      });
+      bookings = Array.from(uniqueBookings1.values());
     } else if (ptName && isAllClubs) {
       // Filter untuk PT saja (All Clubs)
       const result2 = await db.execute(sql`
@@ -114,10 +124,12 @@ export async function GET(request: NextRequest) {
           SELECT lw1.*
           FROM log_webhook lw1
           INNER JOIN (
-            SELECT bookingid, MAX(timestamp) as max_timestamp
+            SELECT bookingid, MAX(timestamp) as max_timestamp, MAX(id) as max_id
             FROM log_webhook
             GROUP BY bookingid
-          ) lw2 ON lw1.bookingid = lw2.bookingid AND lw1.timestamp = lw2.max_timestamp
+          ) lw2 ON lw1.bookingid = lw2.bookingid 
+            AND lw1.timestamp = lw2.max_timestamp
+            AND lw1.id = lw2.max_id
         ) lw
         LEFT JOIN member m ON lw.memberid = m.member_id
         JOIN list_booking lb ON lw.bookingid = lb.id
@@ -127,7 +139,15 @@ export async function GET(request: NextRequest) {
       `);
       // Drizzle dengan mysql2 mengembalikan [rows, metadata]
       const rows2 = Array.isArray(result2) && result2.length > 0 ? result2[0] : [];
-      bookings = Array.isArray(rows2) ? rows2 : [];
+      // Deduplikasi berdasarkan bookingid - ambil hanya 1 record per bookingid
+      const uniqueBookings2 = new Map();
+      (Array.isArray(rows2) ? rows2 : []).forEach((booking: any) => {
+        const bookingId = booking.bookingid || booking.fingerlogid;
+        if (bookingId && !uniqueBookings2.has(bookingId)) {
+          uniqueBookings2.set(bookingId, booking);
+        }
+      });
+      bookings = Array.from(uniqueBookings2.values());
     } else if (!ptName && !isAllClubs) {
       // Filter untuk Club saja
       const result3 = await db.execute(sql`
@@ -158,10 +178,12 @@ export async function GET(request: NextRequest) {
           SELECT lw1.*
           FROM log_webhook lw1
           INNER JOIN (
-            SELECT bookingid, MAX(timestamp) as max_timestamp
+            SELECT bookingid, MAX(timestamp) as max_timestamp, MAX(id) as max_id
             FROM log_webhook
             GROUP BY bookingid
-          ) lw2 ON lw1.bookingid = lw2.bookingid AND lw1.timestamp = lw2.max_timestamp
+          ) lw2 ON lw1.bookingid = lw2.bookingid 
+            AND lw1.timestamp = lw2.max_timestamp
+            AND lw1.id = lw2.max_id
         ) lw
         LEFT JOIN member m ON lw.memberid = m.member_id
         JOIN list_booking lb ON lw.bookingid = lb.id
@@ -171,7 +193,15 @@ export async function GET(request: NextRequest) {
       `);
       // Drizzle dengan mysql2 mengembalikan [rows, metadata]
       const rows3 = Array.isArray(result3) && result3.length > 0 ? result3[0] : [];
-      bookings = Array.isArray(rows3) ? rows3 : [];
+      // Deduplikasi berdasarkan bookingid - ambil hanya 1 record per bookingid
+      const uniqueBookings3 = new Map();
+      (Array.isArray(rows3) ? rows3 : []).forEach((booking: any) => {
+        const bookingId = booking.bookingid || booking.fingerlogid;
+        if (bookingId && !uniqueBookings3.has(bookingId)) {
+          uniqueBookings3.set(bookingId, booking);
+        }
+      });
+      bookings = Array.from(uniqueBookings3.values());
     } else {
       // Tanpa filter (All Clubs, All PT)
       const result4 = await db.execute(sql`
@@ -202,10 +232,12 @@ export async function GET(request: NextRequest) {
           SELECT lw1.*
           FROM log_webhook lw1
           INNER JOIN (
-            SELECT bookingid, MAX(timestamp) as max_timestamp
+            SELECT bookingid, MAX(timestamp) as max_timestamp, MAX(id) as max_id
             FROM log_webhook
             GROUP BY bookingid
-          ) lw2 ON lw1.bookingid = lw2.bookingid AND lw1.timestamp = lw2.max_timestamp
+          ) lw2 ON lw1.bookingid = lw2.bookingid 
+            AND lw1.timestamp = lw2.max_timestamp
+            AND lw1.id = lw2.max_id
         ) lw
         LEFT JOIN member m ON lw.memberid = m.member_id
         JOIN list_booking lb ON lw.bookingid = lb.id
@@ -214,7 +246,15 @@ export async function GET(request: NextRequest) {
       `);
       // Drizzle dengan mysql2 mengembalikan [rows, metadata]
       const rows4 = Array.isArray(result4) && result4.length > 0 ? result4[0] : [];
-      bookings = Array.isArray(rows4) ? rows4 : [];
+      // Deduplikasi berdasarkan bookingid - ambil hanya 1 record per bookingid
+      const uniqueBookings4 = new Map();
+      (Array.isArray(rows4) ? rows4 : []).forEach((booking: any) => {
+        const bookingId = booking.bookingid || booking.fingerlogid;
+        if (bookingId && !uniqueBookings4.has(bookingId)) {
+          uniqueBookings4.set(bookingId, booking);
+        }
+      });
+      bookings = Array.from(uniqueBookings4.values());
     }
 
     // Gate verification: checklist jika booking_checkin = 1 DAN access = 'granted'

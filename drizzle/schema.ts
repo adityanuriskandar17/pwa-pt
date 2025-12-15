@@ -82,3 +82,5 @@ export const logWebhook = mysqlTable('log_webhook', {
   timestamp: datetime('timestamp'),
   booking_checkin: int('booking_checkin'),
 });
+
+
