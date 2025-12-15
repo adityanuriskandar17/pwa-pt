@@ -57,6 +57,7 @@ export default function DashboardPage() {
   const [loadingStage, setLoadingStage] = useState<'waiting' | 'almost' | 'success'>('waiting');
   const [tableData, setTableData] = useState<TableData[]>([]);
   const [selectedRow, setSelectedRow] = useState<TableData | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -402,16 +403,24 @@ export default function DashboardPage() {
     setSelectedRow(row);
   };
 
-  const handleSelectType = (type: 'member' | 'pt', row: TableData) => {
+  const handleSelectType = async (type: 'member' | 'pt', row: TableData) => {
+    // Tampilkan loading
+    setIsNavigating(true);
+    
     // Navigate to verification page with selected type
     // Gunakan bookingId untuk nomor (bukan nomor urut)
     const personName = type === 'member' ? row.member : row.pt;
     const bookingId = row.bookingId || row.nomor; // Fallback ke nomor jika bookingId tidak ada
+    
+    // Delay kecil untuk menampilkan loading animation
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
     router.push(`/verification?nomor=${bookingId}&member=${encodeURIComponent(row.member)}&pt=${encodeURIComponent(row.pt)}&status=${encodeURIComponent(row.status)}&type=${type}&person=${encodeURIComponent(personName)}`);
   };
 
   const handleCloseModal = () => {
     setSelectedRow(null);
+    setIsNavigating(false);
   };
 
   if (loading) {
@@ -1163,11 +1172,22 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="p-6">
+              {isNavigating ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className="relative w-16 h-16 mb-4">
+                    <div className="absolute inset-0 border-4 border-gray-200 rounded-full"></div>
+                    <div className="absolute inset-0 border-4 border-purple-600 rounded-full border-t-transparent animate-spin"></div>
+                  </div>
+                  <p className="text-lg font-semibold text-gray-900 mb-2">Memuat halaman validasi...</p>
+                  <p className="text-sm text-gray-500">Mohon tunggu sebentar</p>
+                </div>
+              ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Member Card */}
                 <button
                   onClick={() => handleSelectType('member', selectedRow)}
-                  className="group relative p-6 border-2 border-gray-200 rounded-lg hover:border-purple-500 hover:shadow-md transition-all text-left"
+                  disabled={isNavigating}
+                  className="group relative p-6 border-2 border-gray-200 rounded-lg hover:border-purple-500 hover:shadow-md transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="flex items-start gap-4">
                     <div className="w-12 h-12 rounded-lg bg-purple-50 group-hover:bg-purple-100 flex items-center justify-center transition-colors">
@@ -1188,7 +1208,8 @@ export default function DashboardPage() {
                 {/* PT Card */}
                 <button
                   onClick={() => handleSelectType('pt', selectedRow)}
-                  className="group relative p-6 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all text-left"
+                  disabled={isNavigating}
+                  className="group relative p-6 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="flex items-start gap-4">
                     <div className="w-12 h-12 rounded-lg bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center transition-colors">
@@ -1206,6 +1227,7 @@ export default function DashboardPage() {
                   </div>
                 </button>
               </div>
+              )}
             </div>
           </div>
         </div>

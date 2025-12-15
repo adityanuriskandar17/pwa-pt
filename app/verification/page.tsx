@@ -38,6 +38,7 @@ function VerificationContent() {
   const [blinkCount, setBlinkCount] = useState(0);
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const earHistoryRef = useRef<number[]>([]);
   const isBlinkDetectedRef = useRef<boolean>(false);
   const autoStartAttemptedRef = useRef<boolean>(false);
@@ -48,6 +49,34 @@ function VerificationContent() {
   const status = searchParams.get('status');
   const type = searchParams.get('type') as 'member' | 'pt' | null;
   const person = searchParams.get('person');
+
+  // Auto-redirect ke validasi PT setelah member berhasil divalidasi
+  useEffect(() => {
+    if (type === 'member' && verificationResult?.success && pt && nomor && member && status) {
+      // Delay 2 detik untuk user melihat success message
+      const redirectTimer = setTimeout(() => {
+        setIsRedirecting(true);
+        // Reset verification result sebelum redirect agar tidak muncul di halaman PT
+        setVerificationResult(null);
+        // Delay kecil untuk menampilkan loading
+        setTimeout(() => {
+          router.push(
+            `/verification?nomor=${nomor}&member=${encodeURIComponent(member)}&pt=${encodeURIComponent(pt)}&status=${encodeURIComponent(status)}&type=pt&person=${encodeURIComponent(pt)}`
+          );
+        }, 500);
+      }, 2000);
+
+      return () => clearTimeout(redirectTimer);
+    }
+  }, [type, verificationResult?.success, pt, nomor, member, status, router]);
+
+  // Reset redirecting state saat type berubah
+  useEffect(() => {
+    if (type === 'pt') {
+      setIsRedirecting(false);
+      setVerificationResult(null); // Pastikan tidak ada success message saat masuk ke PT
+    }
+  }, [type]);
 
   // Redirect back if no type selected
   useEffect(() => {
@@ -939,7 +968,7 @@ function VerificationContent() {
                 </div>
 
                 {/* Initial State - No Camera */}
-                {!isCameraActive && !verificationResult && (
+                {!isCameraActive && !verificationResult && !isRedirecting && (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center space-y-3">
                       <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center">
@@ -954,8 +983,24 @@ function VerificationContent() {
                   </div>
                 )}
 
-                {/* Success Result */}
-                {verificationResult?.success && (
+                {/* Loading Animation saat Redirect ke PT */}
+                {isRedirecting && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-blue-50">
+                    <div className="text-center space-y-4 px-6">
+                      <div className="relative w-20 h-20 mx-auto">
+                        <div className="absolute inset-0 border-4 border-gray-200 rounded-full"></div>
+                        <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
+                      </div>
+                      <div>
+                        <p className="text-lg font-semibold text-blue-900 mb-2">Mengalihkan ke validasi Personal Trainer...</p>
+                        <p className="text-sm text-blue-600">Mohon tunggu sebentar</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Success Result - hanya tampil jika type sesuai dan berhasil */}
+                {verificationResult?.success && !isRedirecting && (
                   <div className="absolute inset-0 flex items-center justify-center bg-green-50">
                     <div className="text-center space-y-3 px-6">
                       <div className="w-16 h-16 mx-auto bg-green-500 rounded-full flex items-center justify-center">
@@ -970,6 +1015,11 @@ function VerificationContent() {
                         {verificationResult.score && (
                           <p className="text-xs text-green-500 mt-2">
                             Confidence: {(verificationResult.score * 100).toFixed(1)}%
+                          </p>
+                        )}
+                        {type === 'member' && pt && (
+                          <p className="text-xs text-green-600 mt-3 animate-pulse">
+                            Mengalihkan ke validasi Personal Trainer...
                           </p>
                         )}
                       </div>
