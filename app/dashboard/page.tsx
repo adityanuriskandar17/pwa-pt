@@ -54,6 +54,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingStage, setLoadingStage] = useState<'waiting' | 'almost' | 'success'>('waiting');
   const [tableData, setTableData] = useState<TableData[]>([]);
   const [selectedRow, setSelectedRow] = useState<TableData | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -177,6 +178,7 @@ export default function DashboardPage() {
     const fetchData = async () => {
       try {
         setLoading(true);
+        setLoadingStage('waiting');
         // Fetch data dari API dengan club_name
         // Jika role_id = 11 (Personal Trainer), tambahkan filter pt_name
         // Jika "All Club" dipilih, kirim "All Club" sebagai club_name
@@ -249,12 +251,22 @@ export default function DashboardPage() {
         });
 
         setTableData(initialData);
+        
+        // Update loading stage
+        setLoadingStage('almost');
+        await new Promise(resolve => setTimeout(resolve, 300)); // Delay untuk smooth transition
+        
+        setLoadingStage('success');
+        await new Promise(resolve => setTimeout(resolve, 500)); // Tampilkan success sebentar
+        
       } catch (error: any) {
         console.error('Error fetching data:', error);
         // Fallback ke empty array jika error
         setTableData([]);
+        setLoadingStage('waiting');
       } finally {
         setLoading(false);
+        setLoadingStage('waiting');
       }
     };
 
@@ -403,9 +415,60 @@ export default function DashboardPage() {
   };
 
   if (loading) {
+    const loadingMessages = {
+      waiting: 'Mohon tunggu...',
+      almost: 'Hampir selesai...',
+      success: 'Berhasil!'
+    };
+
+    const loadingColors = {
+      waiting: 'text-blue-600',
+      almost: 'text-yellow-600',
+      success: 'text-green-600'
+    };
+
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-gray-600 font-medium">Memuat...</div>
+        <div className="flex flex-col items-center gap-6">
+          {/* Spinner dengan animasi */}
+          <div className="relative w-20 h-20">
+            <div className={`absolute inset-0 border-4 border-gray-200 rounded-full`}></div>
+            <div 
+              className={`absolute inset-0 border-4 ${loadingStage === 'waiting' ? 'border-blue-600' : loadingStage === 'almost' ? 'border-yellow-600' : 'border-green-600'} rounded-full border-t-transparent animate-spin`}
+            ></div>
+            {loadingStage === 'success' && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <svg className="w-10 h-10 text-green-600 animate-scale-in" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            )}
+          </div>
+          
+          {/* Loading message dengan animasi fade */}
+          <div className="text-center">
+            <p className={`text-xl font-semibold ${loadingColors[loadingStage]} transition-all duration-500 animate-fade-in`}>
+              {loadingMessages[loadingStage]}
+            </p>
+            {loadingStage === 'waiting' && (
+              <p className="text-sm text-gray-500 mt-2 animate-pulse">Memuat data booking...</p>
+            )}
+            {loadingStage === 'almost' && (
+              <p className="text-sm text-gray-500 mt-2 animate-pulse">Menyiapkan tampilan...</p>
+            )}
+          </div>
+
+          {/* Progress bar */}
+          <div className="w-64 h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div 
+              className={`h-full transition-all duration-500 ${
+                loadingStage === 'waiting' ? 'bg-blue-600 w-1/3' : 
+                loadingStage === 'almost' ? 'bg-yellow-600 w-2/3' : 
+                'bg-green-600 w-full'
+              } rounded-full`}
+            ></div>
+          </div>
+        </div>
       </div>
     );
   }
