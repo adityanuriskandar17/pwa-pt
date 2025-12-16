@@ -42,6 +42,8 @@ function VerificationContent() {
   const earHistoryRef = useRef<number[]>([]);
   const isBlinkDetectedRef = useRef<boolean>(false);
   const autoStartAttemptedRef = useRef<boolean>(false);
+  const eyeClosedRef = useRef<boolean>(false);
+  const lastBlinkTimeRef = useRef<number>(0);
 
   const nomor = searchParams.get('nomor');
   const member = searchParams.get('member');
@@ -60,23 +62,48 @@ function VerificationContent() {
         setVerificationResult(null);
         // Delay kecil untuk menampilkan loading
         setTimeout(() => {
-          router.push(
-            `/verification?nomor=${nomor}&member=${encodeURIComponent(member)}&pt=${encodeURIComponent(pt)}&status=${encodeURIComponent(status)}&type=pt&person=${encodeURIComponent(pt)}`
-          );
+          // PENTING: Gunakan window.location.href untuk full page reload
+          // Ini diperlukan agar header camera permission di-set ulang dengan benar
+          window.location.href = `/verification?nomor=${nomor}&member=${encodeURIComponent(member)}&pt=${encodeURIComponent(pt)}&status=${encodeURIComponent(status)}&type=pt&person=${encodeURIComponent(pt)}`;
         }, 500);
       }, 2000);
 
       return () => clearTimeout(redirectTimer);
     }
-  }, [type, verificationResult?.success, pt, nomor, member, status, router]);
+  }, [type, verificationResult?.success, pt, nomor, member, status]);
 
-  // Reset redirecting state saat type berubah
+  // Reset ALL state saat type atau person berubah (pindah dari member ke PT atau sebaliknya)
   useEffect(() => {
-    if (type === 'pt') {
-      setIsRedirecting(false);
-      setVerificationResult(null); // Pastikan tidak ada success message saat masuk ke PT
+    console.log('🔄 Type/Person changed, resetting detection state...', { type, person });
+    
+    // Reset all detection states
+    setIsRedirecting(false);
+    setVerificationResult(null);
+    setIsBlinkDetected(false);
+    setIsWaitingForBlink(false);
+    setError(null);
+    isBlinkDetectedRef.current = false;
+    autoStartAttemptedRef.current = false;
+    earHistoryRef.current = [];
+    eyeClosedRef.current = false;
+    lastBlinkTimeRef.current = 0;
+    
+    // Stop any ongoing detection
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
-  }, [type]);
+    
+    // If camera was active, restart blink detection after a short delay
+    if (isCameraActive && videoRef.current) {
+      setTimeout(() => {
+        if (isCameraActive && videoRef.current && !isWaitingForBlink) {
+          console.log('🔄 Restarting blink detection for new target...');
+          startBlinkDetection();
+        }
+      }, 500);
+    }
+  }, [type, person]);
 
   // Redirect back if no type selected
   useEffect(() => {
@@ -300,88 +327,53 @@ function VerificationContent() {
       const rightEyeEAR = calculateEAR(rightEyePoints);
       const avgEAR = (leftEyeEAR + rightEyeEAR) / 2.0;
 
-      // Store EAR history
+      // Store EAR history (need more frames for stable baseline)
       earHistoryRef.current.push(avgEAR);
-      if (earHistoryRef.current.length > 10) {
+      if (earHistoryRef.current.length > 20) {
         earHistoryRef.current.shift();
       }
 
-      // Blink detection - maximum sensitivity for natural blinks
-      // Using very low thresholds and multiple detection methods
-      const MIN_BASELINE_EAR = 0.2; // Very low minimum baseline
-      const MIN_ABSOLUTE_DROP = 0.015; // Ultra low absolute drop (0.015)
-      const MIN_RELATIVE_DROP = 0.02; // 2% relative drop (very sensitive)
-      const MIN_FRAME_DROP = 0.015; // Frame-to-frame drop (very sensitive)
+      // Need at least 5 frames to establish baseline
+      if (earHistoryRef.current.length < 5) {
+        return false;
+      }
+
+      // Calculate baseline from HIGHEST values (when eyes are fully open)
+      const sortedHistory = [...earHistoryRef.current].sort((a, b) => b - a);
+      const topValues = sortedHistory.slice(0, 5);
+      const baseline = topValues.reduce((a, b) => a + b, 0) / topValues.length;
       
-      if (earHistoryRef.current.length >= 2) {
-        const currentEAR = earHistoryRef.current[earHistoryRef.current.length - 1];
-        // Get baseline from last 2-3 frames (very short window)
-        const baseline = earHistoryRef.current.slice(-3, -1);
-        if (baseline.length < 1) return false;
-        
-        const avgBaseline = baseline.length > 0 
-          ? baseline.reduce((a, b) => a + b, 0) / baseline.length 
-          : currentEAR;
-        
-        // Calculate drops
-        const relativeDrop = avgBaseline > 0 ? (avgBaseline - currentEAR) / avgBaseline : 0;
-        const absoluteDrop = avgBaseline - currentEAR;
-        
-        // Frame-to-frame comparison (most sensitive)
-        const prevEAR = earHistoryRef.current[earHistoryRef.current.length - 2] || avgBaseline;
-        const frameDrop = prevEAR - currentEAR;
-        
-        // Also compare with 2 frames ago for more stability
-        const prev2EAR = earHistoryRef.current.length >= 3 
-          ? earHistoryRef.current[earHistoryRef.current.length - 3] 
-          : prevEAR;
-        const twoFrameDrop = prev2EAR - currentEAR;
-        
-        // Log for debugging (every frame for maximum visibility)
-        console.log('EAR Debug:', {
-          current: currentEAR.toFixed(3),
-          baseline: avgBaseline.toFixed(3),
-          prev: prevEAR.toFixed(3),
-          prev2: prev2EAR.toFixed(3),
-          absoluteDrop: absoluteDrop.toFixed(3),
-          frameDrop: frameDrop.toFixed(3),
-          twoFrameDrop: twoFrameDrop.toFixed(3),
-          relativeDrop: (relativeDrop * 100).toFixed(1) + '%',
-          thresholds: {
-            abs: MIN_ABSOLUTE_DROP.toFixed(3),
-            rel: (MIN_RELATIVE_DROP * 100).toFixed(0) + '%',
-            frame: MIN_FRAME_DROP.toFixed(3)
-          }
+      // Dynamic thresholds based on baseline
+      const CLOSED_THRESHOLD = baseline * 0.65; // Eye closed at 65% of baseline
+      const OPEN_THRESHOLD = baseline * 0.80;   // Eye open at 80% of baseline
+      const MIN_BLINK_COOLDOWN = 400; // 400ms between blinks
+      
+      const currentTime = Date.now();
+      const timeSinceLastBlink = currentTime - lastBlinkTimeRef.current;
+      
+      // Log every 5 frames
+      if (earHistoryRef.current.length % 5 === 0) {
+        console.log('👁️', {
+          ear: avgEAR.toFixed(3),
+          baseline: baseline.toFixed(3),
+          closed: CLOSED_THRESHOLD.toFixed(3),
+          open: OPEN_THRESHOLD.toFixed(3),
+          eyeClosed: eyeClosedRef.current
         });
-        
-        // Maximum sensitivity: ANY drop condition triggers blink
-        // Condition 1: Absolute drop >= 0.015
-        // Condition 2: Relative drop >= 2%
-        // Condition 3: Frame-to-frame drop >= 0.015
-        // Condition 4: Two-frame drop >= 0.02 (catches slower blinks)
-        // Condition 5: Current EAR is lower than baseline (even slightly)
-        const hasAbsoluteDrop = absoluteDrop >= MIN_ABSOLUTE_DROP;
-        const hasRelativeDrop = relativeDrop >= MIN_RELATIVE_DROP;
-        const hasFrameDrop = frameDrop >= MIN_FRAME_DROP;
-        const hasTwoFrameDrop = twoFrameDrop >= 0.02;
-        const isLower = currentEAR < avgBaseline;
-        
-        // Blink detected if baseline is valid AND any drop condition is met AND current is lower
-        if (avgBaseline >= MIN_BASELINE_EAR && 
-            (hasAbsoluteDrop || hasRelativeDrop || hasFrameDrop || hasTwoFrameDrop) &&
-            isLower) {
-          console.log('✅ Blink detected!', {
-            currentEAR: currentEAR.toFixed(3),
-            baseline: avgBaseline.toFixed(3),
-            prevEAR: prevEAR.toFixed(3),
-            absoluteDrop: absoluteDrop.toFixed(3),
-            frameDrop: frameDrop.toFixed(3),
-            twoFrameDrop: twoFrameDrop.toFixed(3),
-            relativeDrop: (relativeDrop * 100).toFixed(1) + '%',
-            condition: hasAbsoluteDrop ? 'absolute' : hasRelativeDrop ? 'relative' : hasFrameDrop ? 'frame' : 'two-frame'
-          });
-          return true; // Blink detected
-        }
+      }
+
+      // Step 1: Detect eye CLOSING (EAR drops below closed threshold)
+      if (avgEAR < CLOSED_THRESHOLD && !eyeClosedRef.current) {
+        console.log('👁️ Eye CLOSED - EAR:', avgEAR.toFixed(3));
+        eyeClosedRef.current = true;
+      }
+      
+      // Step 2: Detect eye OPENING after it was closed = BLINK COMPLETE
+      if (eyeClosedRef.current && avgEAR > OPEN_THRESHOLD && timeSinceLastBlink >= MIN_BLINK_COOLDOWN) {
+        console.log('✅ BLINK DETECTED! EAR:', avgEAR.toFixed(3), 'Baseline:', baseline.toFixed(3));
+        eyeClosedRef.current = false;
+        lastBlinkTimeRef.current = currentTime;
+        return true; // Blink confirmed!
       }
 
       return false;
@@ -441,6 +433,8 @@ function VerificationContent() {
       isBlinkDetectedRef.current = false;
       setBlinkCount(0);
       earHistoryRef.current = [];
+      eyeClosedRef.current = false;
+      lastBlinkTimeRef.current = 0;
 
       const detectLoop = async () => {
         // Check if we should stop
@@ -1113,6 +1107,9 @@ function VerificationContent() {
                     isBlinkDetectedRef.current = false;
                     setIsWaitingForBlink(false);
                     autoStartAttemptedRef.current = false;
+                    earHistoryRef.current = [];
+                    eyeClosedRef.current = false;
+                    lastBlinkTimeRef.current = 0;
                     stopBlinkDetection();
                     
                     // Restart camera and auto-start blink detection

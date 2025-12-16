@@ -464,7 +464,9 @@ export default function DashboardPage() {
     // Delay kecil untuk menampilkan loading animation
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    router.push(`/verification?nomor=${bookingId}&member=${encodeURIComponent(row.member)}&pt=${encodeURIComponent(row.pt)}&status=${encodeURIComponent(row.status)}&type=${type}&person=${encodeURIComponent(personName)}`);
+    // PENTING: Gunakan window.location.href untuk full page reload
+    // Ini diperlukan agar middleware berjalan dan header Permissions-Policy camera=(self) di-set
+    window.location.href = `/verification?nomor=${bookingId}&member=${encodeURIComponent(row.member)}&pt=${encodeURIComponent(row.pt)}&status=${encodeURIComponent(row.status)}&type=${type}&person=${encodeURIComponent(personName)}`;
   };
 
   const handleCloseModal = () => {
