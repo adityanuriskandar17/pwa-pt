@@ -60,6 +60,14 @@ function VerificationContent() {
         setIsRedirecting(true);
         // Reset verification result sebelum redirect agar tidak muncul di halaman PT
         setVerificationResult(null);
+        
+        // PENTING: Stop camera sebelum redirect
+        if (videoRef.current && videoRef.current.srcObject) {
+          const stream = videoRef.current.srcObject as MediaStream;
+          stream.getTracks().forEach(track => track.stop());
+          videoRef.current.srcObject = null;
+        }
+        
         // Delay kecil untuk menampilkan loading
         setTimeout(() => {
           // PENTING: Gunakan window.location.href untuk full page reload
@@ -820,14 +828,52 @@ function VerificationContent() {
     }
   }, [isCameraActive, verificationResult, isWaitingForBlink, isBlinkDetected, isModelLoaded, isModelLoading]);
 
-  // Cleanup camera on unmount
+  // Cleanup camera on unmount AND on page unload
   useEffect(() => {
+    // Function to stop all camera tracks
+    const cleanupCamera = () => {
+      console.log('🔴 Cleaning up camera...');
+      // Stop blink detection
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      // Stop camera stream
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => {
+          console.log('🔴 Stopping track:', track.kind);
+          track.stop();
+        });
+        videoRef.current.srcObject = null;
+      }
+    };
+
+    // Handle page unload (for window.location.href navigation)
+    const handleBeforeUnload = () => {
+      cleanupCamera();
+    };
+
+    // Handle visibility change (when tab is hidden/closed)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        cleanupCamera();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
-      stopCamera();
+      cleanupCamera();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
   const handleBack = () => {
+    // Stop camera before navigating
+    stopCamera();
     router.push('/dashboard');
   };
 
