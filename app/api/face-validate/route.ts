@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { image_b64 } = body;
+    const { image_b64, type } = body;
 
     if (!image_b64) {
       return NextResponse.json(
@@ -46,15 +46,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get API URL from environment variable (server-side, tidak perlu NEXT_PUBLIC_)
-    const faceApiUrl = process.env.FACE_API_URL || 'https://identity.ftlgym.com/api/validate-face';
+    // Get API URL based on type (member or pt)
+    // PT uses different endpoint: FACE_PT_API_URL
+    // Member uses: FACE_API_URL
+    const faceApiUrl = type === 'pt' 
+      ? (process.env.FACE_PT_API_URL || 'https://identity.ftlgym.com/api/validate-face-pt')
+      : (process.env.FACE_API_URL || 'https://identity.ftlgym.com/api/validate-face');
+    
+    const faceApiKey = process.env.STAFF_FACE_API_KEY;
 
-    console.log('Calling face recognition API:', faceApiUrl);
+    // Validate API key is configured
+    if (!faceApiKey) {
+      console.error('STAFF_FACE_API_KEY environment variable is not set');
+      return NextResponse.json(
+        { error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+
+    console.log(`Calling face recognition API for ${type || 'member'}:`, faceApiUrl);
 
     const response = await fetch(faceApiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-API-KEY': faceApiKey,
       },
       body: JSON.stringify({
         image_b64: image_b64,

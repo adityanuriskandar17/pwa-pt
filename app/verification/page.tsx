@@ -150,7 +150,8 @@ function VerificationContent() {
   };
 
   // Validate face dengan API melalui Next.js API route (proxy)
-  const validateFace = async (imageBase64: string) => {
+  // type: 'member' atau 'pt' - menentukan endpoint yang digunakan
+  const validateFace = async (imageBase64: string, validationType: 'member' | 'pt') => {
     try {
       // Gunakan Next.js API route sebagai proxy untuk menghindari CORS dan masalah network
       const response = await fetch('/api/face-validate', {
@@ -610,7 +611,8 @@ function VerificationContent() {
 
     try {
       const imageBase64 = captureFrameFromVideo(videoRef.current);
-      const response = await validateFace(imageBase64);
+      // Pass type ('member' atau 'pt') untuk menentukan endpoint yang digunakan
+      const response = await validateFace(imageBase64, type || 'member');
 
       if (response.ok && response.matched) {
         // Validasi: Nama dari face recognition harus sama dengan nama yang dipilih
