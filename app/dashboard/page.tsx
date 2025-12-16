@@ -417,6 +417,60 @@ export default function DashboardPage() {
     return `${year}-${month}-${dayPadded}`;
   };
 
+  // Check if validation button should be shown
+  // Show button only within 2 hours BEFORE start time and 2 hours AFTER end time
+  const isValidationWindowActive = (startDate: string, startTime: string, endTime: string): boolean => {
+    if (!serverTime || !startDate || !startTime || !endTime) return false;
+    
+    try {
+      // Parse startDate (format: "Selasa, 16/12/2025" atau "16/12/2025")
+      let dateStr = startDate;
+      // Remove day name if present (e.g., "Selasa, 16/12/2025" -> "16/12/2025")
+      if (dateStr.includes(',')) {
+        dateStr = dateStr.split(',')[1].trim();
+      }
+      
+      // Parse date (format: "16/12/2025" -> day/month/year)
+      const dateParts = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (!dateParts) return false;
+      
+      const [, day, month, year] = dateParts;
+      
+      // Parse start time (format: "08:00")
+      const [startHour, startMinute] = startTime.split(':').map(Number);
+      // Parse end time (format: "09:00")
+      const [endHour, endMinute] = endTime.split(':').map(Number);
+      
+      // Create start and end Date objects
+      const startDateTime = new Date(
+        parseInt(year),
+        parseInt(month) - 1, // Month is 0-indexed
+        parseInt(day),
+        startHour,
+        startMinute
+      );
+      
+      const endDateTime = new Date(
+        parseInt(year),
+        parseInt(month) - 1,
+        parseInt(day),
+        endHour,
+        endMinute
+      );
+      
+      // Calculate window: 2 hours before start, 2 hours after end
+      const windowStart = new Date(startDateTime.getTime() - 2 * 60 * 60 * 1000); // 2 hours before
+      const windowEnd = new Date(endDateTime.getTime() + 2 * 60 * 60 * 1000);     // 2 hours after
+      
+      // Check if current server time is within the window
+      const currentTime = serverTime.getTime();
+      return currentTime >= windowStart.getTime() && currentTime <= windowEnd.getTime();
+    } catch (error) {
+      console.error('Error parsing validation window:', error);
+      return false;
+    }
+  };
+
   // Handle date input change
   const handleDateInputChange = (value: string) => {
     setDateInputValue(value);
@@ -1105,16 +1159,20 @@ export default function DashboardPage() {
                         </div>
                       </TableCell>
                       <TableCell className="py-3 px-3 text-right">
-                        <Button
-                          onClick={() => handleAction(row)}
-                          size="sm"
-                          className="bg-gray-900 hover:bg-gray-800 text-white text-xs px-2.5 py-1.5 h-auto"
-                        >
-                          <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          <span className="hidden sm:inline">Validasi</span>
-                        </Button>
+                        {isValidationWindowActive(row.startDate, row.startTime, row.endTime) ? (
+                          <Button
+                            onClick={() => handleAction(row)}
+                            size="sm"
+                            className="bg-gray-900 hover:bg-gray-800 text-white text-xs px-2.5 py-1.5 h-auto"
+                          >
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="hidden sm:inline">Validasi</span>
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">-</span>
+                        )}
                       </TableCell>
                     </TableRow>
                     ))
