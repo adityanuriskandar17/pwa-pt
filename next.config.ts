@@ -75,6 +75,17 @@ const pwaConfig = withPWA({
   disable: process.env.NODE_ENV === "development",
   buildExcludes: [/app-manifest\.json$/],
   runtimeCaching: [
+    // Exclude verification page from caching (needs fresh camera permissions)
+    {
+      urlPattern: /\/verification/,
+      handler: "NetworkOnly",
+    },
+    // Exclude API routes from caching
+    {
+      urlPattern: /\/api\//,
+      handler: "NetworkOnly",
+    },
+    // Cache other resources
     {
       urlPattern: /^https?.*/,
       handler: "NetworkFirst",

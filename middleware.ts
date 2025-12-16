@@ -4,12 +4,28 @@ import type { NextRequest } from 'next/server';
 // Middleware untuk security checks
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
+  const pathname = request.nextUrl.pathname;
 
   // Security headers (tambahan dari next.config)
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'SAMEORIGIN');
   response.headers.set('X-XSS-Protection', '1; mode=block');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  // Set Permissions-Policy based on route
+  // Verification page needs camera access
+  if (pathname === '/verification' || pathname.startsWith('/verification')) {
+    response.headers.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+  } else {
+    response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  }
+  
+  // Prevent caching of verification page to ensure fresh headers
+  if (pathname === '/verification' || pathname.startsWith('/verification')) {
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    response.headers.set('Pragma', 'no-cache');
+    response.headers.set('Expires', '0');
+  }
 
   // CORS headers (jika diperlukan)
   const origin = request.headers.get('origin');
@@ -55,6 +71,9 @@ export const config = {
     '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 };
+
+
+
 
 
 
