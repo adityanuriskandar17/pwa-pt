@@ -161,6 +161,7 @@ function VerificationContent() {
         },
         body: JSON.stringify({
           image_b64: imageBase64,
+          type: validationType, // 'member' atau 'pt' - menentukan endpoint yang digunakan
         }),
       });
 
