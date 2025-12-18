@@ -57,13 +57,30 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query
+    // Urutan prioritas nama member:
+    // 1. m.fullname dari tabel member
+    // 2. Gabungan m.firstname + m.surname dari tabel member
+    // 3. lb.show_name dari tabel list_booking (exclude '0' dan nilai numerik saja)
+    // 4. wc.membername dari tabel webhook_checkin
     let sql = `
       SELECT
         wc.id,
         wc.doorid,
         wc.doorname,
         wc.memberid,
-        COALESCE(m.fullname, CONCAT_WS(' ', m.firstname, m.surname), wc.membername) AS member_name,
+        COALESCE(
+          NULLIF(TRIM(m.fullname), ''),
+          NULLIF(TRIM(CONCAT_WS(' ', m.firstname, m.surname)), ''),
+          CASE 
+            WHEN lb.show_name IS NOT NULL 
+              AND TRIM(lb.show_name) != '' 
+              AND TRIM(lb.show_name) != '0'
+              AND TRIM(lb.show_name) REGEXP '[a-zA-Z]'
+            THEN TRIM(lb.show_name) 
+            ELSE NULL 
+          END,
+          NULLIF(TRIM(wc.membername), '')
+        ) AS member_name,
         wc.access,
         wc.membershipname,
         wc.timestamp AS timestamp_gate,
