@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { sql } from 'drizzle-orm';
+import { execute } from '@/lib/db';
 import { deleteCachePattern } from '@/lib/redis';
 import { apiRateLimit } from '@/lib/rate-limit';
 import { validateBigInt, sanitizeString, validateBodySize, validateDateString } from '@/lib/validation';
@@ -21,8 +20,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate request body size
-    const bodySizeCheck = validateBodySize(await request.clone().json(), 50); // Max 50KB
+    const bodySizeCheck = validateBodySize(await request.clone().json(), 50);
     if (!bodySizeCheck.valid) {
       return NextResponse.json(
         { error: bodySizeCheck.error || 'Request terlalu besar' },
@@ -33,7 +31,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { memberName, memberId, bookingId, type, date } = body;
 
-    // Input validation
     if (!memberName || !bookingId || !type || !date) {
       return NextResponse.json(
         { error: 'Missing required fields: memberName, bookingId, type, date' },
@@ -41,7 +38,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate type
     if (type !== 'member' && type !== 'pt') {
       return NextResponse.json(
         { error: 'Type must be "member" or "pt"' },
@@ -49,63 +45,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate and sanitize inputs
-    const sanitizedMemberName = sanitizeString(memberName, 255);
     const validatedBookingId = validateBigInt(bookingId);
-    
     if (!validatedBookingId) {
-      return NextResponse.json(
-        { error: 'Invalid bookingId' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid bookingId' }, { status: 400 });
     }
 
     if (!validateDateString(date)) {
-      return NextResponse.json(
-        { error: 'Invalid date format' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
     }
 
-    // Update list_booking berdasarkan bookingId (dengan validated input)
-    // Update face_booking_member jika type = 'member'
-    // Update face_booking_pt jika type = 'pt'
-    let result;
-    if (type === 'member') {
-      result = await db.execute(sql`
-        UPDATE list_booking
-        SET face_booking_member = 1
-        WHERE id = ${validatedBookingId}
-      `);
-    } else {
-      result = await db.execute(sql`
-        UPDATE list_booking
-        SET face_booking_pt = 1
-        WHERE id = ${validatedBookingId}
-      `);
-    }
+    // Update list_booking
+    const column = type === 'member' ? 'face_booking_member' : 'face_booking_pt';
+    const result = await execute(
+      `UPDATE list_booking SET ${column} = 1 WHERE id = ?`,
+      [validatedBookingId]
+    );
 
-    // Drizzle dengan mysql2 mengembalikan [result, metadata] untuk UPDATE
-    const updateResult = Array.isArray(result) && result.length > 0 ? result[0] : result;
-    const affectedRows = (updateResult as any)?.affectedRows || 0;
-
-    // Invalidate semua cache bookings karena data sudah berubah
+    // Invalidate cache
     await deleteCachePattern('bookings:*');
 
     return NextResponse.json({
       success: true,
       message: `Face validation ${type} updated successfully`,
-      updated: affectedRows,
+      updated: result.affectedRows,
     });
   } catch (error: any) {
     console.error('Error updating face validation:', error);
     return NextResponse.json(
-      { 
-        success: false,
-        error: error.message || 'Failed to update face validation'
-      },
+      { success: false, error: error.message || 'Failed to update face validation' },
       { status: 500 }
     );
   }
 }
-

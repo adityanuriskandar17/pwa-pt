@@ -1,59 +1,96 @@
-import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
-import * as schema from '@/drizzle/schema';
 
-// Validate required environment variables
-const requiredEnvVars = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
-for (const envVar of requiredEnvVars) {
-  if (!process.env[envVar]) {
-    throw new Error(`${envVar} environment variable is not set`);
+// ============================================
+// MOBILE_DATABASE Configuration - Direct mysql2
+// ============================================
+
+// Parse DATABASE_URL
+const parseDbUrl = (url: string) => {
+  const cleanUrl = url.split('?')[0];
+  const regex = /mysql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/;
+  const match = cleanUrl.match(regex);
+  
+  if (!match) {
+    throw new Error('Invalid DATABASE_URL format');
   }
-}
-
-// Database configuration from individual env vars
-const dbConfig = {
-  host: process.env.DB_HOST!,
-  port: parseInt(process.env.DB_PORT || '3306'),
-  user: process.env.DB_USER!,
-  password: process.env.DB_PASSWORD!,
-  database: process.env.DB_NAME!,
+  
+  return {
+    user: decodeURIComponent(match[1]),
+    password: decodeURIComponent(match[2]),
+    host: match[3],
+    port: parseInt(match[4]),
+    database: match[5],
+  };
 };
 
-// Create connection pool dengan optimasi untuk performa maksimal
-export const connection = mysql.createPool({
-  ...dbConfig,
+// Get config
+const getConfig = () => {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL environment variable must be set');
+  }
+  const config = parseDbUrl(process.env.DATABASE_URL);
+  console.log('DB Config:', { host: config.host, port: config.port, database: config.database, user: config.user });
+  return config;
+};
+
+const dbConfig = getConfig();
+
+// Create connection pool
+export const pool = mysql.createPool({
+  host: dbConfig.host,
+  port: dbConfig.port,
+  user: dbConfig.user,
+  password: dbConfig.password,
+  database: dbConfig.database,
   
-  // Connection pool settings (WAJIB untuk performa)
-  waitForConnections: true, // Tunggu jika semua connection sedang dipakai
-  connectionLimit: 20, // Increase limit untuk handle concurrent requests
-  queueLimit: 0, // Unlimited queue (jangan reject request)
+  // Pool settings
+  waitForConnections: true,
+  connectionLimit: 20,
+  queueLimit: 0,
   
-  // Keep-alive settings
+  // Keep-alive
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
   
-  // Timeout settings
-  connectTimeout: 10000, // 10 detik timeout untuk connect
-  acquireTimeout: 60000, // 60 detik timeout untuk acquire connection dari pool
+  // Timeout
+  connectTimeout: 10000,
   
-  // MySQL specific optimizations
-  multipleStatements: false, // Security: disable multiple statements
-  dateStrings: false, // Return dates as Date objects, not strings
-  supportBigNumbers: true, // Support BIGINT
-  bigNumberStrings: false, // Return BIGINT as numbers, not strings
+  // MySQL options
+  multipleStatements: false,
+  dateStrings: false,
+  supportBigNumbers: true,
+  bigNumberStrings: false,
 });
 
-// Create Drizzle instance
-export const db = drizzle(connection, { schema, mode: 'default' });
+// Helper function untuk query
+export async function query<T = any>(sql: string, params?: any[]): Promise<T[]> {
+  const [rows] = await pool.execute(sql, params);
+  return rows as T[];
+}
 
-// Export schema for use in queries
-export { schema };
+// Helper function untuk query single row
+export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T | null> {
+  const rows = await query<T>(sql, params);
+  return rows.length > 0 ? rows[0] : null;
+}
 
+// Helper function untuk execute (INSERT, UPDATE, DELETE)
+export async function execute(sql: string, params?: any[]): Promise<mysql.ResultSetHeader> {
+  const [result] = await pool.execute(sql, params);
+  return result as mysql.ResultSetHeader;
+}
 
+// Test connection
+export async function testConnection(): Promise<boolean> {
+  try {
+    const connection = await pool.getConnection();
+    console.log('✅ Database connection established successfully');
+    connection.release();
+    return true;
+  } catch (error) {
+    console.error('❌ Database connection failed:', error);
+    return false;
+  }
+}
 
-
-
-
-
-
-
+export default pool;
