@@ -193,6 +193,10 @@ export default function DashboardPage() {
           // Personal Trainer: filter berdasarkan nama mereka sendiri
           apiUrl += `&pt_name=${encodeURIComponent(user.name)}`;
         }
+        // Tambahkan filter tanggal jika ada
+        if (selectedDate) {
+          apiUrl += `&date=${encodeURIComponent(selectedDate)}`;
+        }
         
         // Tambahkan force_refresh parameter jika diperlukan
         if (forceRefresh) {
@@ -313,7 +317,7 @@ export default function DashboardPage() {
     }, 300000); // 5 menit (sesuai dengan Redis TTL)
     
     return () => clearInterval(autoRefreshInterval);
-  }, [selectedClub, user]);
+  }, [selectedClub, user, selectedDate]); // Tambahkan selectedDate agar fetch ulang saat tanggal berubah
   
   // Fungsi untuk refresh manual
   const handleRefresh = () => {

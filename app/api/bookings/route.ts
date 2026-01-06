@@ -23,10 +23,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const clubNameRaw = searchParams.get('club_name');
     const ptNameRaw = searchParams.get('pt_name');
+    const dateRaw = searchParams.get('date'); // Format: YYYY-MM-DD
     const forceRefresh = searchParams.get('force_refresh') === 'true';
 
     let clubName: string | null = null;
     let ptName: string | null = null;
+    let filterDate: string | null = null;
 
     if (clubNameRaw) {
       const sanitized = sanitizeString(clubNameRaw, 255);
@@ -46,8 +48,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Validate date format (YYYY-MM-DD)
+    if (dateRaw) {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (dateRegex.test(dateRaw)) {
+        filterDate = dateRaw;
+      } else {
+        return NextResponse.json({ error: 'Invalid date format. Use YYYY-MM-DD' }, { status: 400 });
+      }
+    }
+
     const isAllClubs = !clubName || clubName === 'All Club' || clubName === '';
-    const cacheKey = `bookings:${clubName || 'all'}:${ptName || 'all'}`;
+    const cacheKey = `bookings:${clubName || 'all'}:${ptName || 'all'}:${filterDate || 'all'}`;
     
     if (!forceRefresh) {
       const cachedData = await getCache(cacheKey);
@@ -120,6 +132,10 @@ export async function GET(request: NextRequest) {
     if (ptName) {
       conditions.push('LOWER(TRIM(lb.resource_name)) = LOWER(TRIM(?))');
       params.push(ptName);
+    }
+    if (filterDate) {
+      conditions.push('DATE(lb.daystarttime) = ?');
+      params.push(filterDate);
     }
 
     if (conditions.length > 0) {
