@@ -39,6 +39,12 @@ function VerificationContent() {
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<{
+    ear: string;
+    threshold: string;
+    status: string;
+  } | null>(null);
+
   const earHistoryRef = useRef<number[]>([]);
   const isBlinkDetectedRef = useRef<boolean>(false);
   const autoStartAttemptedRef = useRef<boolean>(false);
@@ -52,6 +58,133 @@ function VerificationContent() {
   const type = searchParams.get('type') as 'member' | 'pt' | null;
   const person = searchParams.get('person');
 
+  // Detect blink using eye landmarks
+  const detectBlink = async (video: HTMLVideoElement): Promise<boolean> => {
+    try {
+      if (!modelRef.current || !video) return false;
+
+      // Create detection canvas if not exists
+      if (!detectionCanvasRef.current) {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        detectionCanvasRef.current = canvas;
+      }
+
+      const canvas = detectionCanvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return false;
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+
+      // Detect faces
+      const faces = await modelRef.current.estimateFaces(canvas, {
+        flipHorizontal: false,
+        staticImageMode: false,
+      });
+
+      if (faces.length === 0) {
+        setDebugInfo({ ear: '-', threshold: '-', status: 'No Face' });
+        return false;
+      }
+
+      const face = faces[0];
+      const keypoints = face.keypoints;
+
+      // Check if keypoints exist
+      if (!keypoints || keypoints.length === 0) {
+        return false;
+      }
+
+      const leftEyeIndices = [33, 133, 157, 158, 159, 160];
+      const rightEyeIndices = [362, 263, 388, 387, 386, 385];
+
+      // Get eye landmarks from keypoints array
+      const getPoint = (idx: number): [number, number] => {
+        if (keypoints && keypoints.length > idx && keypoints[idx]) {
+          const point = keypoints[idx];
+          // TensorFlow.js returns normalized coordinates (0-1)
+          const x = point.x * canvas.width;
+          const y = point.y * canvas.height;
+          return [x, y];
+        }
+        return [0, 0];
+      };
+
+      const leftEyePoints = leftEyeIndices.map(idx => getPoint(idx));
+      const rightEyePoints = rightEyeIndices.map(idx => getPoint(idx));
+
+      // Check if we have valid points (not all zeros)
+      const hasValidPoints = (points: number[][]) => {
+        return points.some(p => p[0] !== 0 || p[1] !== 0);
+      };
+
+      if (!hasValidPoints(leftEyePoints) || !hasValidPoints(rightEyePoints)) {
+        return false;
+      }
+
+      // Calculate EAR for both eyes
+      const leftEyeEAR = calculateEAR(leftEyePoints);
+      const rightEyeEAR = calculateEAR(rightEyePoints);
+      const avgEAR = (leftEyeEAR + rightEyeEAR) / 2.0;
+
+      // Store EAR history (need more frames for stable baseline)
+      earHistoryRef.current.push(avgEAR);
+      if (earHistoryRef.current.length > 20) {
+        earHistoryRef.current.shift();
+      }
+
+      // Need at least 5 frames to establish baseline
+      if (earHistoryRef.current.length < 5) {
+        setDebugInfo({ ear: avgEAR.toFixed(3), threshold: 'Calibrating...', status: 'Calibrating' });
+        return false;
+      }
+
+      // Calculate baseline from HIGHEST values (when eyes are fully open)
+      const sortedHistory = [...earHistoryRef.current].sort((a, b) => b - a);
+      const topValues = sortedHistory.slice(0, 5);
+      const baseline = topValues.reduce((a, b) => a + b, 0) / topValues.length;
+
+      // Dynamic thresholds based on baseline
+      const CLOSED_THRESHOLD = baseline * 0.75; // Increased from 0.65 to make it easier to detect close
+      const OPEN_THRESHOLD = baseline * 0.80;   // Eye open at 80% of baseline
+      const MIN_BLINK_COOLDOWN = 300;
+
+      const currentTime = Date.now();
+      const timeSinceLastBlink = currentTime - lastBlinkTimeRef.current;
+
+      let status = 'Open';
+      if (avgEAR < CLOSED_THRESHOLD) status = 'Closed';
+
+      setDebugInfo({
+        ear: avgEAR.toFixed(3),
+        threshold: `${CLOSED_THRESHOLD.toFixed(3)}`,
+        status: eyeClosedRef.current ? 'Eye Closed (Waiting open)' : status
+      });
+
+      // Step 1: Detect eye CLOSING (EAR drops below closed threshold)
+      if (avgEAR < CLOSED_THRESHOLD && !eyeClosedRef.current) {
+        console.log('👁️ Eye CLOSED - EAR:', avgEAR.toFixed(3));
+        eyeClosedRef.current = true;
+      }
+
+      // Step 2: Detect eye OPENING after it was closed = BLINK COMPLETE
+      if (eyeClosedRef.current && avgEAR > OPEN_THRESHOLD && timeSinceLastBlink >= MIN_BLINK_COOLDOWN) {
+        console.log('✅ BLINK DETECTED! EAR:', avgEAR.toFixed(3), 'Baseline:', baseline.toFixed(3));
+        eyeClosedRef.current = false;
+        lastBlinkTimeRef.current = currentTime;
+        return true; // Blink confirmed!
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Blink detection error:', error);
+      return false;
+    }
+  };
+
   // Auto-redirect ke validasi PT setelah member berhasil divalidasi
   useEffect(() => {
     if (type === 'member' && verificationResult?.success && pt && nomor && member && status) {
@@ -60,14 +193,14 @@ function VerificationContent() {
         setIsRedirecting(true);
         // Reset verification result sebelum redirect agar tidak muncul di halaman PT
         setVerificationResult(null);
-        
+
         // PENTING: Stop camera sebelum redirect
         if (videoRef.current && videoRef.current.srcObject) {
           const stream = videoRef.current.srcObject as MediaStream;
           stream.getTracks().forEach(track => track.stop());
           videoRef.current.srcObject = null;
         }
-        
+
         // Delay kecil untuk menampilkan loading
         setTimeout(() => {
           // PENTING: Gunakan window.location.href untuk full page reload
@@ -83,7 +216,7 @@ function VerificationContent() {
   // Reset ALL state saat type atau person berubah (pindah dari member ke PT atau sebaliknya)
   useEffect(() => {
     console.log('🔄 Type/Person changed, resetting detection state...', { type, person });
-    
+
     // Reset all detection states
     setIsRedirecting(false);
     setVerificationResult(null);
@@ -95,13 +228,13 @@ function VerificationContent() {
     earHistoryRef.current = [];
     eyeClosedRef.current = false;
     lastBlinkTimeRef.current = 0;
-    
+
     // Stop any ongoing detection
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
-    
+
     // If camera was active, restart blink detection after a short delay
     if (isCameraActive && videoRef.current) {
       setTimeout(() => {
@@ -137,15 +270,15 @@ function VerificationContent() {
       canvas.height = video.videoHeight;
       canvasRef.current = canvas;
     }
-    
+
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return '';
-    
+
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
-    
+
     return canvas.toDataURL('image/jpeg', 0.8); // Kirim dengan prefix data:image/jpeg;base64,
   };
 
@@ -188,20 +321,20 @@ function VerificationContent() {
         setIsModelLoaded(true);
         return modelRef.current;
       }
-      
+
       setIsModelLoading(true);
       console.log('Loading face detection model...');
-      
+
       await tf.ready();
       const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
-      
+
       // Use TensorFlow.js runtime (more reliable, no external dependencies)
       const tfjsConfig: faceLandmarksDetection.MediaPipeFaceMeshTfjsModelConfig = {
         runtime: 'tfjs',
         refineLandmarks: true,
         maxFaces: 1,
       };
-      
+
       const detector = await faceLandmarksDetection.createDetector(model, tfjsConfig);
       modelRef.current = detector;
       setIsModelLoaded(true);
@@ -219,7 +352,7 @@ function VerificationContent() {
   // Calculate Eye Aspect Ratio (EAR) - standard formula
   const calculateEAR = (eyeLandmarks: number[][]): number => {
     if (eyeLandmarks.length < 6) return 0.3; // Default if not enough points
-    
+
     // EAR formula: (|p2-p6| + |p3-p5|) / (2 * |p1-p4|)
     // Where:
     // p1 (index 0): left corner
@@ -228,168 +361,33 @@ function VerificationContent() {
     // p4 (index 3): right corner
     // p5 (index 4): bottom right
     // p6 (index 5): bottom left
-    
+
     try {
       // Calculate Euclidean distances
       const dist = (p1: number[], p2: number[]) => {
         return Math.sqrt(Math.pow(p1[0] - p2[0], 2) + Math.pow(p1[1] - p2[1], 2));
       };
-      
+
       // Vertical distances (top to bottom)
       const vertical1 = dist(eyeLandmarks[1], eyeLandmarks[5]); // top-left to bottom-left
       const vertical2 = dist(eyeLandmarks[2], eyeLandmarks[4]); // top-right to bottom-right
-      
+
       // Horizontal distance (left to right corner)
       const horizontal = dist(eyeLandmarks[0], eyeLandmarks[3]);
-      
+
       if (horizontal === 0 || horizontal < 1) return 0.3; // Avoid division by zero or too small
-      
+
       const ear = (vertical1 + vertical2) / (2.0 * horizontal);
-      
+
       // Validate result
       if (isNaN(ear) || !isFinite(ear) || ear < 0 || ear > 1) {
         return 0.3; // Default value for invalid EAR
       }
-      
+
       return ear;
     } catch (error) {
       console.warn('EAR calculation error:', error);
       return 0.3; // Default value
-    }
-  };
-
-  // Detect blink using eye landmarks
-  const detectBlink = async (video: HTMLVideoElement): Promise<boolean> => {
-    try {
-      if (!modelRef.current || !video) return false;
-
-      // Create detection canvas if not exists
-      if (!detectionCanvasRef.current) {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        detectionCanvasRef.current = canvas;
-      }
-
-      const canvas = detectionCanvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return false;
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0);
-
-      // Detect faces
-      const faces = await modelRef.current.estimateFaces(canvas, {
-        flipHorizontal: false,
-        staticImageMode: false,
-      });
-
-      if (faces.length === 0) return false;
-
-      const face = faces[0];
-      const keypoints = face.keypoints;
-      
-      // Check if keypoints exist
-      if (!keypoints || keypoints.length === 0) {
-        return false;
-      }
-      
-      // MediaPipe Face Mesh eye landmark indices (468 total landmarks)
-      // Using standard EAR keypoints for more accurate detection
-      // Left eye EAR points: [33, 133, 157, 158, 159, 160]
-      // - 33: left corner, 133: right corner
-      // - 157: top left, 158: top right
-      // - 159: bottom left, 160: bottom right
-      // Right eye EAR points: [362, 263, 388, 387, 386, 385]
-      // - 362: left corner, 263: right corner
-      // - 388: top left, 387: top right
-      // - 386: bottom left, 385: bottom right
-      const leftEyeIndices = [33, 133, 157, 158, 159, 160];
-      const rightEyeIndices = [362, 263, 388, 387, 386, 385];
-
-      // Get eye landmarks from keypoints array
-      const getPoint = (idx: number): [number, number] => {
-        if (keypoints && keypoints.length > idx && keypoints[idx]) {
-          const point = keypoints[idx];
-          // TensorFlow.js returns normalized coordinates (0-1)
-          const x = point.x * canvas.width;
-          const y = point.y * canvas.height;
-          return [x, y];
-        }
-        return [0, 0];
-      };
-
-      const leftEyePoints = leftEyeIndices.map(idx => getPoint(idx));
-      const rightEyePoints = rightEyeIndices.map(idx => getPoint(idx));
-
-      // Check if we have valid points (not all zeros)
-      const hasValidPoints = (points: number[][]) => {
-        return points.some(p => p[0] !== 0 || p[1] !== 0);
-      };
-
-      if (!hasValidPoints(leftEyePoints) || !hasValidPoints(rightEyePoints)) {
-        return false;
-      }
-
-      // Calculate EAR for both eyes
-      const leftEyeEAR = calculateEAR(leftEyePoints);
-      const rightEyeEAR = calculateEAR(rightEyePoints);
-      const avgEAR = (leftEyeEAR + rightEyeEAR) / 2.0;
-
-      // Store EAR history (need more frames for stable baseline)
-      earHistoryRef.current.push(avgEAR);
-      if (earHistoryRef.current.length > 20) {
-        earHistoryRef.current.shift();
-      }
-
-      // Need at least 5 frames to establish baseline
-      if (earHistoryRef.current.length < 5) {
-        return false;
-      }
-
-      // Calculate baseline from HIGHEST values (when eyes are fully open)
-      const sortedHistory = [...earHistoryRef.current].sort((a, b) => b - a);
-      const topValues = sortedHistory.slice(0, 5);
-      const baseline = topValues.reduce((a, b) => a + b, 0) / topValues.length;
-      
-      // Dynamic thresholds based on baseline
-      const CLOSED_THRESHOLD = baseline * 0.65; // Eye closed at 65% of baseline
-      const OPEN_THRESHOLD = baseline * 0.80;   // Eye open at 80% of baseline
-      const MIN_BLINK_COOLDOWN = 400; // 400ms between blinks
-      
-      const currentTime = Date.now();
-      const timeSinceLastBlink = currentTime - lastBlinkTimeRef.current;
-      
-      // Log every 5 frames
-      if (earHistoryRef.current.length % 5 === 0) {
-        console.log('👁️', {
-          ear: avgEAR.toFixed(3),
-          baseline: baseline.toFixed(3),
-          closed: CLOSED_THRESHOLD.toFixed(3),
-          open: OPEN_THRESHOLD.toFixed(3),
-          eyeClosed: eyeClosedRef.current
-        });
-      }
-
-      // Step 1: Detect eye CLOSING (EAR drops below closed threshold)
-      if (avgEAR < CLOSED_THRESHOLD && !eyeClosedRef.current) {
-        console.log('👁️ Eye CLOSED - EAR:', avgEAR.toFixed(3));
-        eyeClosedRef.current = true;
-      }
-      
-      // Step 2: Detect eye OPENING after it was closed = BLINK COMPLETE
-      if (eyeClosedRef.current && avgEAR > OPEN_THRESHOLD && timeSinceLastBlink >= MIN_BLINK_COOLDOWN) {
-        console.log('✅ BLINK DETECTED! EAR:', avgEAR.toFixed(3), 'Baseline:', baseline.toFixed(3));
-        eyeClosedRef.current = false;
-        lastBlinkTimeRef.current = currentTime;
-        return true; // Blink confirmed!
-      }
-
-      return false;
-    } catch (error) {
-      console.error('Blink detection error:', error);
-      return false;
     }
   };
 
@@ -401,7 +399,7 @@ function VerificationContent() {
       // Set waiting state immediately for better UX
       setIsWaitingForBlink(true);
       setError(null); // Clear previous errors
-      
+
       // Wait for model to load if it's still loading (but only if not already loaded)
       if (isModelLoading && !isModelLoaded && !modelRef.current) {
         console.log('Waiting for model to finish loading...');
@@ -412,7 +410,7 @@ function VerificationContent() {
           waitCount++;
         }
       }
-      
+
       // Load model if not loaded yet and not currently loading
       if (!modelRef.current && !isModelLoading) {
         try {
@@ -424,7 +422,7 @@ function VerificationContent() {
           return;
         }
       }
-      
+
       // If model is still loading after wait, show error
       if (isModelLoading && !modelRef.current) {
         setError('Model masih dimuat. Mohon tunggu sebentar.');
@@ -459,30 +457,30 @@ function VerificationContent() {
 
         try {
           const blinked = await detectBlink(videoRef.current);
-          
+
           if (blinked) {
             console.log('🎉 Blink detected! Stopping detection and starting verification...');
             isBlinkDetectedRef.current = true;
             setIsBlinkDetected(true);
             setIsWaitingForBlink(false);
             setBlinkCount(prev => prev + 1);
-            
+
             if (animationFrameRef.current) {
               cancelAnimationFrame(animationFrameRef.current);
               animationFrameRef.current = null;
             }
-            
+
             // Auto trigger verification after blink detected
             setTimeout(() => {
               handleStartVerification();
             }, 300);
           } else {
-            // Continue detection loop - use setTimeout for async operations
+            // Continue detection loop - reduced delay for better sampling
             setTimeout(() => {
               if (!isBlinkDetectedRef.current && isCameraActive) {
                 animationFrameRef.current = requestAnimationFrame(detectLoop);
               }
-            }, 100); // Check every 100ms (10 FPS for detection)
+            }, 20); // Check every 20ms (was 100ms)
           }
         } catch (error) {
           console.error('Error in detection loop:', error);
@@ -491,7 +489,7 @@ function VerificationContent() {
             if (!isBlinkDetectedRef.current && isCameraActive) {
               animationFrameRef.current = requestAnimationFrame(detectLoop);
             }
-          }, 100);
+          }, 20);
         }
       };
 
@@ -522,7 +520,7 @@ function VerificationContent() {
     try {
       // Wait a bit to ensure video element is rendered
       await new Promise(resolve => setTimeout(resolve, 50));
-      
+
       if (!videoRef.current) {
         console.error('Video ref is null, retrying...');
         // Retry once after a longer delay
@@ -535,19 +533,19 @@ function VerificationContent() {
 
       // Set video constraints untuk landscape mode
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
+        video: {
           facingMode: 'user',
           width: { ideal: 1280 },
           height: { ideal: 720 }
         },
       });
-      
+
       console.log('Setting video stream...');
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setIsCameraActive(true);
         setError(null);
-        
+
         // Force play after a short delay to ensure stream is ready
         setTimeout(() => {
           if (videoRef.current) {
@@ -563,11 +561,11 @@ function VerificationContent() {
         }, 100);
       }
     } catch (err: any) {
-      const errorMessage = err.name === 'NotAllowedError' 
+      const errorMessage = err.name === 'NotAllowedError'
         ? 'Izin kamera ditolak. Silakan berikan izin kamera di pengaturan browser.'
         : err.name === 'NotFoundError'
-        ? 'Kamera tidak ditemukan. Pastikan kamera terhubung.'
-        : 'Tidak dapat mengakses kamera: ' + (err.message || 'Unknown error');
+          ? 'Kamera tidak ditemukan. Pastikan kamera terhubung.'
+          : 'Tidak dapat mengakses kamera: ' + (err.message || 'Unknown error');
       setError(errorMessage);
       console.error('Camera error:', err);
     }
@@ -619,12 +617,12 @@ function VerificationContent() {
         // Validasi: Nama dari face recognition harus sama dengan nama yang dipilih
         const detectedName = response.candidate?.name || '';
         const expectedName = person;
-        
+
         // Normalize names untuk perbandingan (trim, lowercase)
         const normalizeName = (name: string) => name.trim().toLowerCase();
         const detectedNormalized = normalizeName(detectedName);
         const expectedNormalized = normalizeName(expectedName);
-        
+
         // Cek apakah nama cocok
         if (detectedNormalized !== expectedNormalized) {
           // Nama tidak cocok - validasi gagal
@@ -634,7 +632,7 @@ function VerificationContent() {
             expected: expectedName,
             type: type === 'member' ? 'Member' : 'Personal Trainer',
           });
-          
+
           // Tampilkan pesan generic di UI
           setVerificationResult({
             success: false,
@@ -657,12 +655,12 @@ function VerificationContent() {
           // Ambil memberId dari response atau dari URL params
           const memberId = response.candidate?.gym_member_id || response.candidate?.member_pk;
           const bookingId = nomor;
-          
+
           // Ambil tanggal dari booking daystarttime atau hari ini
           // Untuk sekarang gunakan hari ini, tapi idealnya ambil dari booking data
           const today = new Date();
           const dateStr = today.toISOString().split('T')[0];
-          
+
           if (bookingId && person) {
             const updateResponse = await fetch('/api/update-face-validation', {
               method: 'POST',
@@ -698,7 +696,7 @@ function VerificationContent() {
           timestamp: Date.now(),
         };
         sessionStorage.setItem('lastVerification', JSON.stringify(verificationData));
-        
+
         // Cache akan di-invalidate otomatis oleh API update-face-validation
       } else if (response.ok && !response.matched) {
         // ⚠️ Wajah terdeteksi tapi tidak cocok atau tidak terdaftar
@@ -716,8 +714,8 @@ function VerificationContent() {
       setError(errorMessage);
       setVerificationResult({
         success: false,
-        message: errorMessage.includes('Tidak dapat terhubung') 
-          ? errorMessage 
+        message: errorMessage.includes('Tidak dapat terhubung')
+          ? errorMessage
           : 'Terjadi kesalahan saat verifikasi',
       });
     } finally {
@@ -729,7 +727,7 @@ function VerificationContent() {
   useEffect(() => {
     if (isCameraActive && videoRef.current) {
       const video = videoRef.current;
-      
+
       // Check if stream is already set
       if (!video.srcObject) {
         console.log('Waiting for stream to be set...');
@@ -793,17 +791,17 @@ function VerificationContent() {
   useEffect(() => {
     if (isCameraActive && videoRef.current && !verificationResult && !isWaitingForBlink && !isBlinkDetected && !autoStartAttemptedRef.current) {
       const video = videoRef.current;
-      
+
       // Check if video is actually playing and model is ready - faster retry
       const checkAndStart = () => {
         // Check if model is loaded (or at least not loading anymore)
         const modelReady = isModelLoaded || (!isModelLoading && modelRef.current);
-        
+
         // More lenient check - just need video to be ready and model to be ready
         if (video.readyState >= 2 && modelReady) {
           console.log('Video and model are ready, auto-starting blink detection...');
           autoStartAttemptedRef.current = true;
-          
+
           // Minimal delay to ensure video stream is stable
           setTimeout(async () => {
             if (isCameraActive && videoRef.current && !isWaitingForBlink && !isBlinkDetected) {
@@ -824,7 +822,7 @@ function VerificationContent() {
       // Start checking immediately (reduced from 500ms)
       checkAndStart();
     }
-    
+
     // Reset auto-start flag when camera is turned off
     if (!isCameraActive) {
       autoStartAttemptedRef.current = false;
@@ -904,11 +902,10 @@ function VerificationContent() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                type === 'member' 
-                  ? 'bg-purple-100' 
-                  : 'bg-blue-100'
-              }`}>
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${type === 'member'
+                ? 'bg-purple-100'
+                : 'bg-blue-100'
+                }`}>
                 <span className="text-xl">{type === 'member' ? '👤' : '💪'}</span>
               </div>
               <div>
@@ -919,11 +916,10 @@ function VerificationContent() {
               </div>
             </div>
             <span
-              className={`px-3 py-1 rounded-full text-xs font-medium ${
-                status === 'Valid'
-                  ? 'bg-green-50 text-green-700'
-                  : 'bg-red-50 text-red-700'
-              }`}
+              className={`px-3 py-1 rounded-full text-xs font-medium ${status === 'Valid'
+                ? 'bg-green-50 text-green-700'
+                : 'bg-red-50 text-red-700'
+                }`}
             >
               {status}
             </span>
@@ -948,6 +944,21 @@ function VerificationContent() {
         <Card className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <CardContent className="p-6 space-y-6">
 
+            {/* Debug Info Overlay */}
+            {debugInfo && (
+              <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm p-2 rounded-lg z-20 pointer-events-none border border-white/10">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className={`w-2 h-2 rounded-full ${debugInfo.status.includes('Closed') ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} />
+                  <span className={`text-[10px] font-bold ${debugInfo.status.includes('Closed') ? 'text-red-400' : 'text-green-400'}`}>
+                    {debugInfo.status}
+                  </span>
+                </div>
+                <div className="text-[9px] font-mono text-gray-300">
+                  E: {debugInfo.ear} | T: {debugInfo.threshold}
+                </div>
+              </div>
+            )}
+
             {/* Face Recognition Area */}
             <div className="space-y-4">
               <div className="text-center">
@@ -956,12 +967,12 @@ function VerificationContent() {
               </div>
 
               {/* Video Container */}
-              <div 
-                className="relative w-full max-w-lg mx-auto bg-gray-900 rounded-2xl overflow-hidden" 
-                style={{ 
-                  aspectRatio: '4/3', 
-                  maxHeight: 'calc(100vh - 400px)', 
-                  minHeight: '300px' 
+              <div
+                className="relative w-full max-w-lg mx-auto bg-gray-900 rounded-2xl overflow-hidden"
+                style={{
+                  aspectRatio: '4/3',
+                  maxHeight: 'calc(100vh - 400px)',
+                  minHeight: '300px'
                 }}
               >
                 {/* Video Element - Always render but conditionally show */}
@@ -1160,7 +1171,7 @@ function VerificationContent() {
                     eyeClosedRef.current = false;
                     lastBlinkTimeRef.current = 0;
                     stopBlinkDetection();
-                    
+
                     // Restart camera and auto-start blink detection
                     if (isCameraActive) {
                       stopCamera();

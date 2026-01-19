@@ -11,7 +11,7 @@ export function middleware(request: NextRequest) {
   response.headers.set('X-Frame-Options', 'SAMEORIGIN');
   response.headers.set('X-XSS-Protection', '1; mode=block');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  
+
   // Set Permissions-Policy based on route
   // Verification page needs camera access
   if (pathname === '/verification' || pathname.startsWith('/verification')) {
@@ -19,7 +19,7 @@ export function middleware(request: NextRequest) {
   } else {
     response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   }
-  
+
   // Prevent caching of verification page to ensure fresh headers
   if (pathname === '/verification' || pathname.startsWith('/verification')) {
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');

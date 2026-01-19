@@ -7,12 +7,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,12 +41,12 @@ export default function LoginPage() {
 
       // Simpan user data ke sessionStorage
       sessionStorage.setItem('user', JSON.stringify(data.user));
-      
+
       // Jika role_id = 11 (Personal Trainer) dan ada clubName, set selectedClub
       if (data.user.roleId === 11 && data.user.clubName) {
         sessionStorage.setItem('selectedClub', data.user.clubName);
       }
-      
+
       // Semua user langsung ke dashboard
       router.push('/dashboard');
     } catch (err: any) {
@@ -52,8 +55,10 @@ export default function LoginPage() {
     }
   };
 
+
+
   return (
-    <div 
+    <div
       className="flex min-h-screen items-center justify-center px-4 py-12 relative"
       style={{
         backgroundImage: 'url(https://ftlgym.com/wp-content/uploads/2024/09/image-2024-09-26T084541.837.jpg)',
@@ -64,13 +69,13 @@ export default function LoginPage() {
     >
       {/* Overlay untuk readability - elegan dengan hitam/abu-abu */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-      
+
       <div className="w-full max-w-md relative z-10">
         <Card className="border border-gray-200/50 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl overflow-hidden">
           <CardHeader className="text-center space-y-5 pb-6 pt-8 px-8">
             <div className="mx-auto flex items-center justify-center">
               <div className="relative">
-                <img 
+                <img
                   src="/logo-temp.jpg"
                   alt="FTL Logo"
                   className="w-16 h-16 rounded-xl object-cover shadow-md ring-2 ring-gray-100"
@@ -160,10 +165,14 @@ export default function LoginPage() {
                   'Sign In'
                 )}
               </Button>
+
+
             </form>
           </CardContent>
         </Card>
       </div>
+
+
     </div>
   );
 }
